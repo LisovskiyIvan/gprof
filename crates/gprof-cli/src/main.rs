@@ -84,6 +84,18 @@ struct Cli {
     #[arg(long)]
     fbos: bool,
 
+    /// Show only uniforms overhead & redundancy audit
+    #[arg(long)]
+    uniforms: bool,
+
+    /// Show only screen-space overdraw & fillrate analysis
+    #[arg(long)]
+    overdraw: bool,
+
+    /// Show only reconstructed scene tree and mesh hierarchy
+    #[arg(long, alias = "scene")]
+    tree: bool,
+
     /// Generate standalone interactive HTML dashboard (e.g. --html report.html)
     #[arg(long, value_name = "HTML_FILE")]
     html: Option<PathBuf>,
@@ -176,6 +188,19 @@ enum Commands {
     Fbos {
         capture: PathBuf,
     },
+    /// Uniforms overhead & redundancy audit
+    Uniforms {
+        capture: PathBuf,
+    },
+    /// Screen-space overdraw & fillrate pressure analysis
+    Overdraw {
+        capture: PathBuf,
+    },
+    /// Reconstruct logical scene tree and mesh hierarchy
+    #[command(alias = "scene")]
+    Tree {
+        capture: PathBuf,
+    },
     /// Generate standalone interactive HTML dashboard
     Html {
         capture: PathBuf,
@@ -223,6 +248,9 @@ fn main() {
             Commands::Sorting { capture } => (capture.clone(), Some("sorting")),
             Commands::Compression { capture } => (capture.clone(), Some("compression")),
             Commands::Fbos { capture } => (capture.clone(), Some("fbos")),
+            Commands::Uniforms { capture } => (capture.clone(), Some("uniforms")),
+            Commands::Overdraw { capture } => (capture.clone(), Some("overdraw")),
+            Commands::Tree { capture } => (capture.clone(), Some("tree")),
             Commands::Html { capture, .. } => (capture.clone(), Some("html")),
             Commands::Export { capture, .. } => (capture.clone(), Some("export")),
             Commands::Compare { .. } => unreachable!(),
@@ -243,6 +271,9 @@ fn main() {
             Commands::Sorting { .. } => (p.clone(), Some("sorting")),
             Commands::Compression { .. } => (p.clone(), Some("compression")),
             Commands::Fbos { .. } => (p.clone(), Some("fbos")),
+            Commands::Uniforms { .. } => (p.clone(), Some("uniforms")),
+            Commands::Overdraw { .. } => (p.clone(), Some("overdraw")),
+            Commands::Tree { .. } => (p.clone(), Some("tree")),
             Commands::Html { .. } => (p.clone(), Some("html")),
             Commands::Export { .. } => (p.clone(), Some("export")),
             Commands::Compare { .. } => unreachable!(),
@@ -327,6 +358,9 @@ fn main() {
     let is_sorting = cli.sorting || sub_cmd == Some("sorting");
     let is_compression = cli.compression || sub_cmd == Some("compression");
     let is_fbos = cli.fbos || sub_cmd == Some("fbos");
+    let is_uniforms = cli.uniforms || sub_cmd == Some("uniforms");
+    let is_overdraw = cli.overdraw || sub_cmd == Some("overdraw");
+    let is_tree = cli.tree || sub_cmd == Some("tree") || sub_cmd == Some("scene");
     let is_html = sub_cmd == Some("html");
     let is_export = cli.export.is_some() || sub_cmd == Some("export");
 
@@ -358,6 +392,12 @@ fn main() {
         print!("{}", report::format_compression_table(&analysis.compression));
     } else if is_fbos {
         print!("{}", report::format_fbo_table(&analysis.fbos));
+    } else if is_uniforms {
+        print!("{}", report::format_uniforms_table(&analysis.uniforms));
+    } else if is_overdraw {
+        print!("{}", report::format_overdraw_table(&analysis.overdraw));
+    } else if is_tree {
+        print!("{}", report::format_scene_tree_table(&analysis.tree, cli.top));
     } else if is_html {
         let out_path = match &cli.command {
             Some(Commands::Html { output, .. }) => output.clone(),

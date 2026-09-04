@@ -30,6 +30,9 @@ Like [`chperf`](../chperf) (for Chrome traces) and [`hprof`](../hprof) (for V8 h
 16. **Render Target (FBO) Footprint (`gprof fbos`):** Calculates offscreen render target VRAM allocations and flags post-processing passes running at 100% viewport resolution that can be downscaled to 0.5x.
 17. **Interactive Standalone HTML Dashboard (`--html report.html`):** Fully offline, single-file HTML report with zero external CDN dependencies, KPI metrics cards, interactive tabs, searchable tables, and syntax-highlighted code recommendations.
 18. **Mimalloc Global Allocator:** Built-in high-performance memory allocator for fast multi-threaded allocations and minimal parsing overhead.
+19. **Uniforms Overhead & Redundancy Audit (`gprof uniforms`):** Audits all `gl.uniform*` calls for duplicate payloads, catches CPU bandwidth waste (e.g. 217 duplicate `uniformMatrix4fv` calls from `Engine.setMatrices`), and reports uniform density per draw.
+20. **Screen-Space Overdraw & Fillrate Analysis (`gprof overdraw`):** Estimates frame-wide fillrate multiplier and total shaded pixel load (e.g. 8.0x overdraw), highlights full-screen post-processing quads, alpha-blended particle volume, and Early-Z invalidation.
+21. **Scene Tree & Mesh Hierarchy Reconstruction (`gprof tree` / `gprof scene`):** Clusters abstract draw calls into logical 3D objects (VAT Animated Characters, Hero Meshes, Environment Props, Particle Emitters) with world positions, submesh counts, and cross-pass tracking.
 
 ## Build & Install
 
@@ -73,6 +76,19 @@ gprof capture.json --json
 # Babylon.js Performance Linter & TypeScript code fixes
 gprof capture.json --lint
 gprof lint capture.json
+
+# Uniforms overhead & duplicate updates audit
+gprof capture.json --uniforms
+gprof uniforms capture.json
+
+# Screen-space overdraw factor & fillrate pressure
+gprof capture.json --overdraw
+gprof overdraw capture.json
+
+# Scene Tree & Mesh Hierarchy Reconstruction
+gprof capture.json --tree
+gprof tree capture.json
+gprof scene capture.json
 
 # Material & shader sorting efficiency & ping-pong switches
 gprof capture.json --sorting

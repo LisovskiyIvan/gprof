@@ -377,6 +377,35 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
     }
     out.push_str("\n");
 
+    // Uniforms Overhead
+    out.push_str("## 16. Uniforms Overhead & Redundancy Audit\n\n");
+    out.push_str(&format!("- Total Uniform Calls: **{}**\n", format_num(analysis.uniforms.total_calls)));
+    out.push_str(&format!("- Redundant Calls: **{}** (**{:.1}%** redundant)\n", format_num(analysis.uniforms.redundant_calls), analysis.uniforms.redundancy_pct));
+    out.push_str(&format!("- Matrix Calls: **{}** (Redundant: **{}**)\n", analysis.uniforms.matrix_calls, analysis.uniforms.redundant_matrix_calls));
+    out.push_str(&format!("- Uniform Data Volume: **{}** (Redundant: **{}**)\n", format_bytes(analysis.uniforms.total_bytes), format_bytes(analysis.uniforms.redundant_bytes)));
+    out.push_str(&format!("- Average Uniforms per Draw: **{:.1}** (Max: **{}**)\n\n", analysis.uniforms.avg_uniforms_per_draw, analysis.uniforms.max_uniforms_in_draw));
+
+    // Overdraw & Fillrate
+    out.push_str("## 17. Screen-Space Overdraw & Fillrate Analysis\n\n");
+    out.push_str(&format!("- Estimated Overdraw Factor: **{:.1}x** (Risk Level: **{}**)\n", analysis.overdraw.overdraw_factor, analysis.overdraw.risk_level));
+    out.push_str(&format!("- Estimated Shaded Pixels: **{}** (Target Backbuffer: {}x{})\n",
+        format_num(analysis.overdraw.total_shaded_pixels_estimate),
+        analysis.overdraw.backbuffer_resolution.0,
+        analysis.overdraw.backbuffer_resolution.1
+    ));
+    out.push_str(&format!("- Full-Screen Post-Process Quads: **{}**\n", analysis.overdraw.fullscreen_quad_passes));
+    out.push_str(&format!("- Blended Transparent Draws: **{}** ({} triangles)\n\n", analysis.overdraw.blended_draw_calls, format_num(analysis.overdraw.blended_triangles)));
+
+    // Scene Tree
+    out.push_str("## 18. Scene Tree & Mesh Hierarchy Reconstruction\n\n");
+    out.push_str(&format!("- Reconstructed Logical Scene Nodes: **{}**\n", analysis.tree.total_nodes));
+    out.push_str("| Category | Node Count | Total Draws | Total Triangles |\n");
+    out.push_str("|---|---|---|---|\n");
+    for c in &analysis.tree.categories_summary {
+        out.push_str(&format!("| **{}** | {} | {} | **{}** |\n", c.category, c.node_count, c.draw_count, format_num(c.triangle_count)));
+    }
+    out.push_str("\n");
+
     out
 }
 
@@ -602,6 +631,148 @@ pub fn format_sorting_table(analysis: &crate::analysis::SortingAnalysis) -> Stri
             p.ping_pong_switches,
             p.efficiency_pct,
             p.opaque_after_blended
+        ));
+    }
+
+    out
+}
+
+pub fn format_uniforms_table(analysis: &crate::analysis::UniformStats) -> String {
+    let mut out = String::new();
+    out.push_str("# Uniforms Overhead & Redundancy Audit\n\n");
+    out.push_str(&format!("- Total Uniform Calls: **{}**\n", format_num(analysis.total_calls)));
+    out.push_str(&format!("- Redundant Uniform Calls: **{}** (**{:.1}%** redundant)\n", format_num(analysis.redundant_calls), analysis.redundancy_pct));
+    out.push_str(&format!("- Uniform Data Transferred: **{}** (Redundant: **{}**)\n", format_bytes(analysis.total_bytes), format_bytes(analysis.redundant_bytes)));
+    out.push_str(&format!("- Matrix Uniform Calls: **{}** (Redundant: **{}**)\n", analysis.matrix_calls, analysis.redundant_matrix_calls));
+    out.push_str(&format!("- Average Uniforms per Draw Call: **{:.1}** (Max: **{}**)\n\n", analysis.avg_uniforms_per_draw, analysis.max_uniforms_in_draw));
+
+    if !analysis.recommendations.is_empty() {
+        out.push_str("## Warnings & Opportunities\n\n");
+        for r in &analysis.recommendations {
+            out.push_str(&format!("- {}\n", r));
+        }
+        out.push_str("\n");
+    }
+
+    if !analysis.redundant_by_type.is_empty() {
+        out.push_str("## Uniform Commands Breakdown\n\n");
+        out.push_str("| Uniform Command | Total Calls | Redundant Calls | Redundant % | Wasted Bytes |\n");
+        out.push_str("|---|---|---|---|---|\n");
+        for t in &analysis.redundant_by_type {
+            out.push_str(&format!(
+                "| `{}` | {} | **{}** | **{:.1}%** | {} |\n",
+                t.type_name,
+                format_num(t.total),
+                format_num(t.redundant),
+                t.redundant_pct,
+                format_bytes(t.redundant_bytes)
+            ));
+        }
+        out.push_str("\n");
+    }
+
+    if !analysis.top_redundant_callers.is_empty() {
+        out.push_str("## Top Redundant Uniform Callsites\n\n");
+        out.push_str("| Callsite / Function | Total Calls | Redundant Calls | Redundant % |\n");
+        out.push_str("|---|---|---|---|\n");
+        for c in &analysis.top_redundant_callers {
+            out.push_str(&format!(
+                "| `{}` | {} | **{}** | **{:.1}%** |\n",
+                c.caller,
+                c.total_calls,
+                c.redundant_calls,
+                c.redundant_pct
+            ));
+        }
+        out.push_str("\n");
+    }
+
+    out
+}
+
+pub fn format_overdraw_table(analysis: &crate::analysis::OverdrawAnalysisResult) -> String {
+    let mut out = String::new();
+    out.push_str("# Screen-Space Overdraw & Fillrate Analysis\n\n");
+    out.push_str(&format!("- Target Backbuffer Resolution: **{}x{}** ({} pixels)\n",
+        analysis.backbuffer_resolution.0,
+        analysis.backbuffer_resolution.1,
+        format_num(analysis.total_screen_pixels)
+    ));
+    out.push_str(&format!("- Estimated Frame Overdraw Factor: **{:.1}x** (Risk Level: **{}**)\n", analysis.overdraw_factor, analysis.risk_level));
+    out.push_str(&format!("- Estimated Total Shaded Pixels: **{}** pixels/frame\n", format_num(analysis.total_shaded_pixels_estimate)));
+    out.push_str(&format!("- Full-Screen Post-Process Quads: **{}**\n", analysis.fullscreen_quad_passes));
+    out.push_str(&format!("- Blended / Transparent Draws: **{}** ({} triangles)\n", analysis.blended_draw_calls, format_num(analysis.blended_triangles)));
+    if analysis.early_z_broken_draws > 0 {
+        out.push_str(&format!("- ⚠️ Opaque Draws After Blend (Broken Early-Z): **{}**\n", analysis.early_z_broken_draws));
+    }
+    out.push_str("\n");
+
+    if !analysis.recommendations.is_empty() {
+        out.push_str("## Warnings & Opportunities\n\n");
+        for r in &analysis.recommendations {
+            out.push_str(&format!("- {}\n", r));
+        }
+        out.push_str("\n");
+    }
+
+    out.push_str("## Pass-by-Pass Fillrate & Overdraw Pressure\n\n");
+    out.push_str("| Pass # | FBO Name | Viewport | Draws | Quads | Blended Tris | Shaded Pixels Est. | Fillrate Multiplier | Risk |\n");
+    out.push_str("|---|---|---|---|---|---|---|---|---|\n");
+    for p in &analysis.pass_overdraw {
+        out.push_str(&format!(
+            "| #{} | `{}` | {}x{} | {} | {} | {} | {} | **{:.1}x** | {} |\n",
+            p.pass_index,
+            p.fbo_name,
+            p.resolution.0,
+            p.resolution.1,
+            p.draw_count,
+            p.quad_draws,
+            format_num(p.blended_triangles),
+            format_num(p.estimated_shaded_pixels),
+            p.estimated_fillrate_multiplier,
+            p.fillrate_pressure
+        ));
+    }
+
+    out
+}
+
+pub fn format_scene_tree_table(analysis: &crate::analysis::SceneTreeAnalysisResult, top: usize) -> String {
+    let mut out = String::new();
+    out.push_str("# Scene Tree & Mesh Hierarchy Reconstruction\n\n");
+    out.push_str(&format!("- Reconstructed Scene Nodes: **{}**\n\n", analysis.total_nodes));
+
+    out.push_str("## Scene Node Categories Breakdown\n\n");
+    out.push_str("| Category | Node Count | Total Draws | Total Triangles |\n");
+    out.push_str("|---|---|---|---|\n");
+    for c in &analysis.categories_summary {
+        out.push_str(&format!(
+            "| **{}** | {} | {} | **{}** |\n",
+            c.category,
+            c.node_count,
+            c.draw_count,
+            format_num(c.triangle_count)
+        ));
+    }
+    out.push_str("\n");
+
+    out.push_str(&format!("## Top Scene Nodes (Top {})\n\n", top));
+    out.push_str("| ID | Node Name | Category | World Pos | Draws | Triangles | Passes | Shaders |\n");
+    out.push_str("|---|---|---|---|---|---|---|---|\n");
+    for node in analysis.nodes.iter().take(top) {
+        let pos_str = node.world_position.map(|p| format!("({:.1}, {:.1}, {:.1})", p[0], p[1], p[2])).unwrap_or_else(|| "—".to_string());
+        let passes_str = node.passes_used.iter().map(|p| format!("#{}", p)).collect::<Vec<_>>().join(", ");
+        let shaders_str = node.shaders.iter().map(|s| s.replace("fragment:", "").replace("vertex:", "")).collect::<Vec<_>>().join(", ");
+        out.push_str(&format!(
+            "| #{} | **{}** | {} | {} | {} | **{}** | {} | `{}` |\n",
+            node.id,
+            node.name,
+            node.category,
+            pos_str,
+            node.draw_count,
+            format_num(node.total_triangles),
+            passes_str,
+            shaders_str
         ));
     }
 

@@ -78,6 +78,8 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
     let mut draws = Vec::new();
     let mut uploads = Vec::new();
     let mut buffer_uploads = Vec::new();
+    let mut uniform_commands = Vec::new();
+    let mut current_uniform_values: FxHashMap<u32, String> = FxHashMap::default();
     let mut seen_buffer_samples: FxHashSet<String> = FxHashSet::default();
     let mut passes = Vec::new();
 
@@ -436,6 +438,63 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
                     is_duplicate,
                 });
             }
+            name if name.starts_with("uniform") => {
+                summary.uniform_calls += 1;
+                let mut loc_id: Option<u32> = None;
+                let mut is_redundant = false;
+                let mut val_str = String::new();
+                let mut bytes = 4;
+
+                if name.contains("Matrix4") {
+                    bytes = 64;
+                } else if name.contains("Matrix3") {
+                    bytes = 36;
+                } else if name.contains("Matrix2") {
+                    bytes = 16;
+                } else if name.ends_with("4f") || name.ends_with("4i") || name.ends_with("4ui") || name.ends_with("4fv") || name.ends_with("4iv") {
+                    bytes = 16;
+                } else if name.ends_with("3f") || name.ends_with("3i") || name.ends_with("3ui") || name.ends_with("3fv") || name.ends_with("3iv") {
+                    bytes = 12;
+                } else if name.ends_with("2f") || name.ends_with("2i") || name.ends_with("2ui") || name.ends_with("2fv") || name.ends_with("2iv") {
+                    bytes = 8;
+                }
+
+                if let Some(args) = args {
+                    if let Some(first) = args.first() {
+                        loc_id = extract_spektor_id(first);
+                    }
+                    if args.len() >= 2 {
+                        val_str = args[1].to_string();
+                    }
+                }
+
+                if let Some(lid) = loc_id {
+                    if let Some(prev) = current_uniform_values.get(&lid) {
+                        if prev == &val_str {
+                            is_redundant = true;
+                            summary.redundant_uniform_calls += 1;
+                            summary.redundant_uniform_bytes += bytes;
+                        }
+                    }
+                    current_uniform_values.insert(lid, val_str);
+                }
+                summary.uniform_bytes += bytes;
+
+                let stack_caller = cmd.get("stackTrace")
+                    .and_then(|st| st.as_array())
+                    .and_then(|arr| arr.first())
+                    .and_then(|s| s.as_str())
+                    .map(|s| s.to_string());
+
+                uniform_commands.push(UniformCommandItem {
+                    command_index: cmd_idx,
+                    name: name.to_string(),
+                    location_id: loc_id,
+                    bytes,
+                    is_redundant,
+                    stack_caller,
+                });
+            }
             _ => {}
         }
 
@@ -556,10 +615,17 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
             }
 
             let mut has_emissive_tex = false;
+            let mut uniform_count = 0;
+            let mut samplers = Vec::new();
             if let Some(dc_obj) = dc {
                 if let Some(uniforms) = dc_obj.get("uniforms").and_then(|u| u.as_array()) {
+                    uniform_count = uniforms.len();
                     for u in uniforms {
                         let uname = u.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                        let utype = u.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                        if utype.contains("SAMPLER") {
+                            samplers.push(uname.to_string());
+                        }
                         if uname == "glowColor" {
                             if let Some(arr) = u.get("value").and_then(|v| v.as_array()) {
                                 if arr.len() >= 3 {
@@ -651,6 +717,27 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
                 }
             }
 
+            let stack_component = cmd.get("stackTrace")
+                .and_then(|st| st.as_array())
+                .and_then(|arr| {
+                    for frame in arr {
+                        if let Some(f) = frame.as_str() {
+                            if f.contains("ThinGlowLayer") {
+                                return Some("ThinGlowLayer".to_string());
+                            } else if f.contains("Mesh._") || f.contains("Mesh.") {
+                                return Some("Mesh".to_string());
+                            } else if f.contains("Particle") {
+                                return Some("ParticleSystem".to_string());
+                            } else if f.contains("Procedural") {
+                                return Some("ProceduralTexture".to_string());
+                            } else if f.contains("Scene.") {
+                                return Some("Scene".to_string());
+                            }
+                        }
+                    }
+                    arr.first().and_then(|s| s.as_str()).map(|s| s.split('(').next().unwrap_or(s).trim().to_string())
+                });
+
             let draw_item = DrawCallItem {
                 index: draw_item_idx,
                 command_id: cmd_idx,
@@ -678,6 +765,9 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
                 blend_enabled: current_blend_enabled,
                 depth_write: current_depth_mask,
                 cull_enabled: current_cull_enabled,
+                uniform_count,
+                samplers,
+                stack_component,
             };
 
             // Update current pass
@@ -802,6 +892,7 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
         particles: particle_systems,
         uploads,
         buffer_uploads,
+        uniform_commands,
     })
 }
 

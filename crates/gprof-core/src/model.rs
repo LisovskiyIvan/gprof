@@ -68,6 +68,9 @@ pub struct DrawCallItem {
     pub blend_enabled: bool,
     pub depth_write: bool,
     pub cull_enabled: bool,
+    pub uniform_count: usize,
+    pub samplers: Vec<String>,
+    pub stack_component: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,6 +131,16 @@ pub struct DynamicBufferUploadItem {
     pub is_duplicate: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UniformCommandItem {
+    pub command_index: usize,
+    pub name: String,
+    pub location_id: Option<u32>,
+    pub bytes: usize,
+    pub is_redundant: bool,
+    pub stack_caller: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StateChangeSummary {
     pub depth_mask_calls: usize,
@@ -183,6 +196,10 @@ pub struct FrameCaptureSummary {
     pub dynamic_uploads_count: usize,
     pub buffer_subdata_calls: usize,
     pub duplicate_buffer_uploads: usize,
+    pub uniform_calls: usize,
+    pub redundant_uniform_calls: usize,
+    pub uniform_bytes: usize,
+    pub redundant_uniform_bytes: usize,
     pub total_texture_bytes: usize,
     pub total_textures_count: usize,
     pub glow_total_draws: usize,
@@ -209,4 +226,6 @@ pub struct ParsedCapture {
     pub particles: Vec<ParticleSystemItem>,
     pub uploads: Vec<DynamicUploadItem>,
     pub buffer_uploads: Vec<DynamicBufferUploadItem>,
+    pub uniform_commands: Vec<UniformCommandItem>,
 }
+
