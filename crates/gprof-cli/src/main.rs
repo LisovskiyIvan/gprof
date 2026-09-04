@@ -4,6 +4,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[derive(Parser, Debug)]
 #[command(
     name = "gprof",
@@ -64,6 +67,26 @@ struct Cli {
     /// Show only geometry buffers, dynamic uploads (bufferSubData), and 32-bit index buffers
     #[arg(long)]
     buffers: bool,
+
+    /// Show only Babylon.js performance linter rules & TypeScript code fixes
+    #[arg(long)]
+    lint: bool,
+
+    /// Show only material & shader sorting efficiency and ping-pong switches
+    #[arg(long)]
+    sorting: bool,
+
+    /// Show only texture compression (KTX2/ASTC) and NPOT analysis
+    #[arg(long)]
+    compression: bool,
+
+    /// Show only render targets (FBO) VRAM footprint
+    #[arg(long)]
+    fbos: bool,
+
+    /// Generate standalone interactive HTML dashboard (e.g. --html report.html)
+    #[arg(long, value_name = "HTML_FILE")]
+    html: Option<PathBuf>,
 
     /// Filter items by substring (textures, shaders, or draw calls)
     #[arg(long, global = true, value_name = "PATTERN")]
@@ -137,6 +160,29 @@ enum Commands {
     Buffers {
         capture: PathBuf,
     },
+    /// Babylon.js performance linter rules & TypeScript code fixes
+    Lint {
+        capture: PathBuf,
+    },
+    /// Material & shader sorting efficiency & ping-pong switches
+    Sorting {
+        capture: PathBuf,
+    },
+    /// Texture compression (KTX2/ASTC) and NPOT analysis
+    Compression {
+        capture: PathBuf,
+    },
+    /// Render targets (FBO) VRAM footprint
+    Fbos {
+        capture: PathBuf,
+    },
+    /// Generate standalone interactive HTML dashboard
+    Html {
+        capture: PathBuf,
+        /// Destination HTML file path (default: report.html)
+        #[arg(short, long, default_value = "report.html")]
+        output: PathBuf,
+    },
     /// Export full report as Markdown
     Export {
         capture: PathBuf,
@@ -173,6 +219,11 @@ fn main() {
             Commands::Instancing { capture } => (capture.clone(), Some("instancing")),
             Commands::States { capture } => (capture.clone(), Some("states")),
             Commands::Buffers { capture } => (capture.clone(), Some("buffers")),
+            Commands::Lint { capture } => (capture.clone(), Some("lint")),
+            Commands::Sorting { capture } => (capture.clone(), Some("sorting")),
+            Commands::Compression { capture } => (capture.clone(), Some("compression")),
+            Commands::Fbos { capture } => (capture.clone(), Some("fbos")),
+            Commands::Html { capture, .. } => (capture.clone(), Some("html")),
             Commands::Export { capture, .. } => (capture.clone(), Some("export")),
             Commands::Compare { .. } => unreachable!(),
         },
@@ -188,6 +239,11 @@ fn main() {
             Commands::Instancing { .. } => (p.clone(), Some("instancing")),
             Commands::States { .. } => (p.clone(), Some("states")),
             Commands::Buffers { .. } => (p.clone(), Some("buffers")),
+            Commands::Lint { .. } => (p.clone(), Some("lint")),
+            Commands::Sorting { .. } => (p.clone(), Some("sorting")),
+            Commands::Compression { .. } => (p.clone(), Some("compression")),
+            Commands::Fbos { .. } => (p.clone(), Some("fbos")),
+            Commands::Html { .. } => (p.clone(), Some("html")),
             Commands::Export { .. } => (p.clone(), Some("export")),
             Commands::Compare { .. } => unreachable!(),
         },
@@ -247,6 +303,16 @@ fn main() {
         return;
     }
 
+    if let Some(html_path) = &cli.html {
+        let html_content = gprof_core::generate_html_report(&capture, &analysis);
+        if let Err(e) = fs::write(html_path, html_content) {
+            eprintln!("Error writing HTML report to {}: {}", html_path.display(), e);
+            process::exit(1);
+        }
+        println!("✨ Interactive HTML dashboard generated at: {}", html_path.display());
+        return;
+    }
+
     let is_textures = cli.textures || sub_cmd == Some("textures");
     let is_glow = cli.glow || sub_cmd == Some("glow");
     let is_draws = cli.draws || sub_cmd == Some("draws");
@@ -257,6 +323,11 @@ fn main() {
     let is_instancing = cli.instancing || sub_cmd == Some("instancing");
     let is_states = cli.states || sub_cmd == Some("states");
     let is_buffers = cli.buffers || sub_cmd == Some("buffers");
+    let is_lint = cli.lint || sub_cmd == Some("lint");
+    let is_sorting = cli.sorting || sub_cmd == Some("sorting");
+    let is_compression = cli.compression || sub_cmd == Some("compression");
+    let is_fbos = cli.fbos || sub_cmd == Some("fbos");
+    let is_html = sub_cmd == Some("html");
     let is_export = cli.export.is_some() || sub_cmd == Some("export");
 
     if is_textures {
@@ -279,6 +350,25 @@ fn main() {
         print!("{}", report::format_states_table(&analysis.states));
     } else if is_buffers {
         print!("{}", report::format_buffers_table(&analysis.buffers));
+    } else if is_lint {
+        print!("{}", analysis::format_lint_report(&analysis.lint));
+    } else if is_sorting {
+        print!("{}", report::format_sorting_table(&analysis.sorting));
+    } else if is_compression {
+        print!("{}", report::format_compression_table(&analysis.compression));
+    } else if is_fbos {
+        print!("{}", report::format_fbo_table(&analysis.fbos));
+    } else if is_html {
+        let out_path = match &cli.command {
+            Some(Commands::Html { output, .. }) => output.clone(),
+            _ => PathBuf::from("report.html"),
+        };
+        let html_content = gprof_core::generate_html_report(&capture, &analysis);
+        if let Err(e) = fs::write(&out_path, html_content) {
+            eprintln!("Error writing HTML report to {}: {}", out_path.display(), e);
+            process::exit(1);
+        }
+        println!("✨ Interactive HTML dashboard generated at: {}", out_path.display());
     } else if is_export {
         let report_md = report::format_full_report(&capture, &analysis);
         let export_target = cli.export.as_deref().unwrap_or("-");

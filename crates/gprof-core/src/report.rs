@@ -318,6 +318,65 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
         out.push_str("\n");
     }
 
+    // Texture Compression & NPOT
+    out.push_str("## 12. Texture Compression & NPOT Audit\n\n");
+    out.push_str(&format!("- Uncompressed Color Textures: **{}** ({})\n", analysis.compression.uncompressed_color_count, format_bytes(analysis.compression.uncompressed_color_bytes)));
+    out.push_str(&format!("- Potential KTX2 / BC7 / ASTC Savings: **{}** (-75%)\n", format_bytes(analysis.compression.estimated_ktx2_savings_bytes)));
+    out.push_str(&format!("- Float / VAT Textures: **{}** (Half-Float savings: {})\n", format_bytes(analysis.compression.float_vat_bytes), format_bytes(analysis.compression.estimated_half_float_savings_bytes)));
+    out.push_str(&format!("- Non-Power-of-Two (NPOT) Textures: **{}**\n\n", analysis.compression.npot_count));
+
+    // Render Targets (FBO)
+    out.push_str("## 13. Render Targets (FBO) VRAM Footprint\n\n");
+    out.push_str(&format!("- Total Active FBOs: **{}**\n", analysis.fbos.total_fbos_count));
+    out.push_str(&format!("- Total Offscreen FBO VRAM: **{}**\n", format_bytes(analysis.fbos.total_offscreen_vram_bytes)));
+    if let Some((w, h)) = analysis.fbos.backbuffer_resolution {
+        out.push_str(&format!("- Backbuffer Resolution: **{}x{}**\n\n", w, h));
+    } else {
+        out.push_str("\n");
+    }
+    out.push_str("| FBO Name | Viewport | Estimated VRAM | Passes | Draws | Tris | Oversized |\n");
+    out.push_str("|---|---|---|---|---|---|---|\n");
+    for f in &analysis.fbos.fbos {
+        let res = if f.width > 0 && f.height > 0 { format!("{}x{}", f.width, f.height) } else { "—".to_string() };
+        out.push_str(&format!(
+            "| `{}` | {} | **{}** | {} | {} | {} | {} |\n",
+            f.fbo_name,
+            res,
+            format_bytes(f.vram_bytes),
+            f.pass_count,
+            f.draw_count,
+            format_num(f.triangles),
+            if f.is_oversized { "⚠️ Yes" } else { "No" }
+        ));
+    }
+    out.push_str("\n");
+
+    // Material & Shader Sorting
+    out.push_str("## 14. Material & Shader Sorting Efficiency\n\n");
+    out.push_str(&format!("- Consecutive Shader Switches: **{}** (Min possible: **{}**)\n", analysis.sorting.total_switches, analysis.sorting.min_possible_switches));
+    out.push_str(&format!("- Redundant Shader Switches: **{}**\n", analysis.sorting.redundant_switches));
+    out.push_str(&format!("- Ping-Pong Switches (A -> B -> A): **{}**\n", analysis.sorting.ping_pong_switches));
+    out.push_str(&format!("- Overall Sorting Efficiency: **{:.1}%**\n", analysis.sorting.overall_efficiency_pct));
+    if analysis.sorting.total_opaque_after_blended > 0 {
+        out.push_str(&format!("- ⚠️ **Opaque Draws After Blend:** **{}** (breaks Early-Z rejection)\n", analysis.sorting.total_opaque_after_blended));
+    }
+    out.push_str("\n");
+
+    // Babylon.js Linter Summary
+    out.push_str("## 15. Babylon.js Performance Lint Summary\n\n");
+    out.push_str(&format!(
+        "Found **{}** issues (🔴 {} Critical, 🟠 {} High, 🟡 {} Medium, ℹ️ {} Low). Run `gprof lint` for complete TypeScript code fixes.\n\n",
+        analysis.lint.total_issues,
+        analysis.lint.critical_count,
+        analysis.lint.high_count,
+        analysis.lint.medium_count,
+        analysis.lint.low_count
+    ));
+    for r in &analysis.lint.rules {
+        out.push_str(&format!("- {} **[{}]** {}: {}\n", r.severity.emoji(), r.id, r.title, r.impact));
+    }
+    out.push_str("\n");
+
     out
 }
 
@@ -428,5 +487,123 @@ pub fn format_textures_table(textures: &[crate::model::TextureItem], top_n: usiz
             unames
         ));
     }
+    out
+}
+
+pub fn format_compression_table(analysis: &crate::analysis::CompressionAnalysis) -> String {
+    let mut out = String::new();
+    out.push_str("# Texture Compression & NPOT Audit\n\n");
+    out.push_str(&format!("- Total Textures: **{}**\n", analysis.total_textures));
+    out.push_str(&format!("- Uncompressed Color Textures: **{}** ({})\n", analysis.uncompressed_color_count, format_bytes(analysis.uncompressed_color_bytes)));
+    out.push_str(&format!("- Potential KTX2 (ASTC / BC7) Savings: **{}** (-75%)\n", format_bytes(analysis.estimated_ktx2_savings_bytes)));
+    out.push_str(&format!("- Float / VAT Textures: **{}** (Half-Float savings: {})\n", format_bytes(analysis.float_vat_bytes), format_bytes(analysis.estimated_half_float_savings_bytes)));
+    out.push_str(&format!("- Non-Power-of-Two (NPOT) Textures: **{}**\n\n", analysis.npot_count));
+
+    if !analysis.warnings.is_empty() {
+        out.push_str("## Warnings & Opportunities\n\n");
+        for w in &analysis.warnings {
+            out.push_str(&format!("- ⚠️ {}\n", w));
+        }
+        out.push_str("\n");
+    }
+
+    if !analysis.npot_textures.is_empty() {
+        out.push_str("## Non-Power-of-Two (NPOT) Textures List\n\n");
+        out.push_str("| ID | Dimensions | Memory | Type | Draws |\n");
+        out.push_str("|---|---|---|---|---|\n");
+        for t in analysis.npot_textures.iter().take(25) {
+            out.push_str(&format!(
+                "| #{} | {}x{} | **{}** | {} | {} |\n",
+                t.id,
+                t.width,
+                t.height,
+                format_bytes(t.memory_bytes),
+                if t.is_float { "Float Data" } else { "Color / Albedo" },
+                t.draw_count
+            ));
+        }
+        out.push_str("\n");
+    }
+
+    out
+}
+
+pub fn format_fbo_table(analysis: &crate::analysis::FboAnalysis) -> String {
+    let mut out = String::new();
+    out.push_str("# Render Targets (FBO) VRAM Audit\n\n");
+    out.push_str(&format!("- Total Active FBOs: **{}**\n", analysis.total_fbos_count));
+    out.push_str(&format!("- Total Offscreen FBO VRAM: **{}**\n", format_bytes(analysis.total_offscreen_vram_bytes)));
+    if let Some((w, h)) = analysis.backbuffer_resolution {
+        out.push_str(&format!("- Backbuffer Resolution: **{}x{}**\n\n", w, h));
+    } else {
+        out.push_str("\n");
+    }
+
+    if !analysis.warnings.is_empty() {
+        out.push_str("## Warnings & Opportunities\n\n");
+        for w in &analysis.warnings {
+            out.push_str(&format!("- ⚠️ {}\n", w));
+        }
+        out.push_str("\n");
+    }
+
+    out.push_str("## FBO Allocation Breakdown\n\n");
+    out.push_str("| FBO Name | Viewport | Estimated VRAM | Passes | Draws | Tris | Oversized |\n");
+    out.push_str("|---|---|---|---|---|---|---|\n");
+    for f in &analysis.fbos {
+        let res = if f.width > 0 && f.height > 0 { format!("{}x{}", f.width, f.height) } else { "—".to_string() };
+        out.push_str(&format!(
+            "| `{}` | {} | **{}** | {} | {} | {} | {} |\n",
+            f.fbo_name,
+            res,
+            format_bytes(f.vram_bytes),
+            f.pass_count,
+            f.draw_count,
+            format_num(f.triangles),
+            if f.is_oversized { "⚠️ Yes" } else { "No" }
+        ));
+    }
+
+    out
+}
+
+pub fn format_sorting_table(analysis: &crate::analysis::SortingAnalysis) -> String {
+    let mut out = String::new();
+    out.push_str("# Material & Shader Sorting Efficiency Audit\n\n");
+    out.push_str(&format!("- Consecutive Shader Switches: **{}** (Min possible: **{}**)\n", analysis.total_switches, analysis.min_possible_switches));
+    out.push_str(&format!("- Redundant Shader Switches: **{}**\n", analysis.redundant_switches));
+    out.push_str(&format!("- Ping-Pong Switches (A -> B -> A): **{}**\n", analysis.ping_pong_switches));
+    out.push_str(&format!("- Overall Sorting Efficiency: **{:.1}%**\n", analysis.overall_efficiency_pct));
+    if analysis.total_opaque_after_blended > 0 {
+        out.push_str(&format!("- ⚠️ **Opaque Draws After Blend:** **{}** (breaks Early-Z rejection)\n", analysis.total_opaque_after_blended));
+    }
+    out.push_str("\n");
+
+    if !analysis.warnings.is_empty() {
+        out.push_str("## Warnings & Opportunities\n\n");
+        for w in &analysis.warnings {
+            out.push_str(&format!("- ⚠️ {}\n", w));
+        }
+        out.push_str("\n");
+    }
+
+    out.push_str("## Pass-by-Pass Sorting Efficiency\n\n");
+    out.push_str("| Pass # | FBO | Draws | Switches | Min Switches | Redundant | Ping-Pong | Efficiency | Opaque After Blend |\n");
+    out.push_str("|---|---|---|---|---|---|---|---|---|\n");
+    for p in &analysis.passes {
+        out.push_str(&format!(
+            "| #{} | `{}` | {} | {} | {} | **{}** | **{}** | **{:.1}%** | {} |\n",
+            p.pass_index,
+            p.fbo_name,
+            p.draw_count,
+            p.shader_switches,
+            p.min_possible_switches,
+            p.redundant_switches,
+            p.ping_pong_switches,
+            p.efficiency_pct,
+            p.opaque_after_blended
+        ));
+    }
+
     out
 }

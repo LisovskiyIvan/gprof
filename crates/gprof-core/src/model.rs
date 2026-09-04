@@ -37,6 +37,7 @@ pub struct TextureItem {
     pub draw_count: usize,
     pub bound_units: Vec<u32>,
     pub uniform_names: Vec<String>,
+    pub is_pot: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,6 +80,9 @@ pub struct RenderPassItem {
     pub points: usize,
     pub shaders: Vec<String>,
     pub start_command: usize,
+    pub viewport_width: Option<u32>,
+    pub viewport_height: Option<u32>,
+    pub vram_bytes: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

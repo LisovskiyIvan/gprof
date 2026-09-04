@@ -4,3 +4,4 @@ debug/
 **/*.rs.bk
 .DS_Store
 fixtures/*.json
+*.html

@@ -24,6 +24,12 @@ Like [`chperf`](../chperf) (for Chrome traces) and [`hprof`](../hprof) (for V8 h
 10. **Render Pass Pipeline:** Reconstructs the exact sequence of FBOs and passes (VAT animation, Glow, Blur, Main Color, Weapon Overlay).
 11. **A/B Comparison (Diff Mode):** Compares two captures (e.g. before and after optimization) with metric deltas.
 12. **Transparent Gzip Support:** Automatically reads `.json.gz` files on the fly without manual decompression.
+13. **Babylon.js Performance Linter (`gprof lint`):** 10 automated lint rules (GlowLayer whitelist mode, thin instancing, KTX2 transcoding, ping-pong shader sorting, 32-bit index buffers, dynamic buffer dirty checks) with copy-paste TypeScript code fixes.
+14. **Material & Shader Sorting Audit (`gprof sorting`):** Detects ping-pong shader switches (A -> B -> A), counts redundant program binds, calculates pass efficiency score, and warns when opaque meshes render after blended meshes (broken Early-Z rejection).
+15. **Texture Compression & NPOT Audit (`gprof compression`):** Calculates exact VRAM savings when transcoding uncompressed RGBA8 textures to KTX2 (ASTC 4x4 / BC7, -75%) or half-float VAT (-50%), and lists non-power-of-two (NPOT) textures.
+16. **Render Target (FBO) Footprint (`gprof fbos`):** Calculates offscreen render target VRAM allocations and flags post-processing passes running at 100% viewport resolution that can be downscaled to 0.5x.
+17. **Interactive Standalone HTML Dashboard (`--html report.html`):** Fully offline, single-file HTML report with zero external CDN dependencies, KPI metrics cards, interactive tabs, searchable tables, and syntax-highlighted code recommendations.
+18. **Mimalloc Global Allocator:** Built-in high-performance memory allocator for fast multi-threaded allocations and minimal parsing overhead.
 
 ## Build & Install
 
@@ -44,6 +50,9 @@ cargo install --path crates/gprof-cli
 # Full executive report (Markdown output to stdout)
 gprof capture.json
 
+# Generate standalone interactive HTML dashboard
+gprof capture.json --html report.html
+
 # Supports compressed captures directly
 gprof capture.json.gz
 
@@ -61,6 +70,22 @@ gprof capture.json --json
 ## Targeted Inspection Views
 
 ```bash
+# Babylon.js Performance Linter & TypeScript code fixes
+gprof capture.json --lint
+gprof lint capture.json
+
+# Material & shader sorting efficiency & ping-pong switches
+gprof capture.json --sorting
+gprof sorting capture.json
+
+# Texture compression (KTX2 / ASTC / BC7) & NPOT audit
+gprof capture.json --compression
+gprof compression capture.json
+
+# Render Targets (FBO) VRAM footprint & oversized viewports
+gprof capture.json --fbos
+gprof fbos capture.json
+
 # Instancing & batching candidates (potential saved draw calls)
 gprof capture.json --instancing
 gprof instancing capture.json
@@ -104,12 +129,12 @@ gprof passes capture.json
 
 ## Architecture
 
-- **`crates/gprof-core`**: Core library. High-performance JSON parser via memory-mapped I/O (`memmap2`) with transparent gzip decompression (`flate2`), WebGL state machine reconstruction, and domain-specific analysis passes.
-- **`crates/gprof-cli`**: CLI binary (`gprof`) built with `clap`, markdown report generation, and formatting.
+- **`crates/gprof-core`**: Core library. High-performance JSON parser via memory-mapped I/O (`memmap2`) with transparent gzip decompression (`flate2`), WebGL state machine reconstruction, and domain-specific analysis passes (`compression`, `fbo`, `sorting`, `lint`, `html`).
+- **`crates/gprof-cli`**: CLI binary (`gprof`) built with `clap`, `mimalloc` global allocator, markdown report generation, and formatting.
 
 ## Benchmark
 
 On a **160 MB** SpectorJS capture (2,092 commands, 262 draw calls, 191 textures, 43 shader programs):
-- **Parse time:** ~80 ms
-- **Analysis time:** < 1 ms
-- **Total time:** < 85 ms
+- **Parse time:** ~75 ms
+- **Analysis time:** < 2 ms
+- **Total time:** < 80 ms

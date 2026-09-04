@@ -1,10 +1,12 @@
 pub mod analysis;
 pub mod gl_enum;
+pub mod html;
 pub mod model;
 pub mod parser;
 pub mod report;
 
 pub use analysis::*;
+pub use html::*;
 pub use model::*;
 pub use parser::{parse_file, parse_slice};
 pub use report::*;

@@ -118,6 +118,7 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
     let mut program_shaders: FxHashMap<u32, (String, Vec<String>)> = FxHashMap::default();
 
     // Pass tracking
+    let mut current_viewport: Option<(u32, u32)> = None;
     let mut current_pass = RenderPassItem {
         pass_index: 0,
         fbo_name: current_fbo.clone(),
@@ -127,6 +128,9 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
         points: 0,
         shaders: Vec::new(),
         start_command: 0,
+        viewport_width: None,
+        viewport_height: None,
+        vram_bytes: 0,
     };
 
     let empty_vec = Vec::new();
@@ -300,11 +304,26 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
                             points: 0,
                             shaders: Vec::new(),
                             start_command: cmd_idx,
+                            viewport_width: current_viewport.map(|v| v.0),
+                            viewport_height: current_viewport.map(|v| v.1),
+                            vram_bytes: current_viewport.map(|v| (v.0 as usize) * (v.1 as usize) * 8).unwrap_or(0),
                         };
                     } else {
                         current_pass.fbo_name = new_fbo.clone();
                     }
                     current_fbo = new_fbo;
+                }
+            }
+            "viewport" => {
+                if let Some(args) = args {
+                    if args.len() >= 4 {
+                        let w = args[2].as_u64().unwrap_or(0) as u32;
+                        let h = args[3].as_u64().unwrap_or(0) as u32;
+                        current_viewport = Some((w, h));
+                        current_pass.viewport_width = Some(w);
+                        current_pass.viewport_height = Some(h);
+                        current_pass.vram_bytes = (w as usize) * (h as usize) * 8;
+                    }
                 }
             }
             "useProgram" => {
@@ -690,6 +709,7 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
         let draw_cnt = tex_draw_counts.get(&tid).copied().unwrap_or(0);
         let units: Vec<u32> = tex_bound_units.get(&tid).map(|s| s.iter().copied().collect()).unwrap_or_default();
         let unames: Vec<String> = tex_uniform_names.get(&tid).map(|s| s.iter().cloned().collect()).unwrap_or_default();
+        let is_pot = raw.width > 0 && raw.height > 0 && raw.width.is_power_of_two() && raw.height.is_power_of_two();
         total_texture_bytes += raw.length;
 
         textures.push(TextureItem {
@@ -708,6 +728,7 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
             draw_count: draw_cnt,
             bound_units: units,
             uniform_names: unames,
+            is_pot,
         });
     }
 
