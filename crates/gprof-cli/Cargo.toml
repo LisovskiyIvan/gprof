@@ -1,0 +1,15 @@
+[package]
+name = "gprof-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "gprof"
+path = "src/main.rs"
+
+[dependencies]
+gprof-core = { path = "../gprof-core" }
+clap = { version = "4.5", features = ["derive"] }
+serde_json = { workspace = true }
