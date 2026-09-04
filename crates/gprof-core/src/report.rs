@@ -51,7 +51,22 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
     out.push_str(&format!("| **Texture Memory (VRAM)** | **{}** | {} textures in GPU memory |\n", format_bytes(capture.summary.total_texture_bytes), capture.summary.total_textures_count));
     out.push_str(&format!("| **Texture Binds** | **{}** | activeTexture / bindTexture calls |\n", capture.summary.texture_bind_calls));
     out.push_str(&format!("| **Framebuffers (FBOs)** | **{}** | {} bindFramebuffer calls |\n", capture.summary.active_fbo_count, capture.summary.fbo_bind_calls));
-    out.push_str(&format!("| **Per-Frame Uploads** | **{}** | texImage2D calls during frame |\n", capture.summary.dynamic_uploads_count));
+    out.push_str(&format!(
+        "| **Dynamic Uploads** | **{}** | {} texImage2D, {} bufferSubData ({} duplicate) |\n",
+        capture.summary.dynamic_uploads_count + capture.summary.buffer_subdata_calls,
+        capture.summary.dynamic_uploads_count,
+        capture.summary.buffer_subdata_calls,
+        capture.summary.duplicate_buffer_uploads
+    ));
+    out.push_str(&format!(
+        "| **Redundant State Calls** | **{}** | Redundant depthMask, blend, depthTest, useProgram |\n",
+        capture.state_changes.total_redundant_calls
+    ));
+    out.push_str(&format!(
+        "| **Index Buffer 32-bit** | **{}** | Draw calls using UNSIGNED_INT >65k verts (vs {} 16-bit) |\n",
+        capture.summary.index_32bit_draws,
+        capture.summary.index_16bit_draws
+    ));
     out.push_str("\n");
 
     // Critical Warnings / Quick Wins
@@ -77,6 +92,22 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
 
     if let Some(w) = &analysis.uploads.warning {
         out.push_str(&format!("- 🟡 **Dynamic Texture Uploads:** {}\n", w));
+    }
+
+    for w in &analysis.states.warnings {
+        out.push_str(&format!("- 🟡 **State Thrashing:** {}\n", w));
+    }
+
+    for w in &analysis.buffers.warnings {
+        out.push_str(&format!("- 🟡 **Buffer / Geometry:** {}\n", w));
+    }
+
+    if analysis.instancing.total_potential_saved_draws > 0 {
+        out.push_str(&format!(
+            "- 🟡 **Instancing Potential:** Found **{}** groups of duplicate geometry drawn in separate calls. Merging into Thin Instances could eliminate up to **{}** draw calls per frame.\n",
+            analysis.instancing.total_candidates_groups,
+            analysis.instancing.total_potential_saved_draws
+        ));
     }
 
     if let Some(w) = &analysis.particles.warning {
@@ -198,6 +229,176 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
                 rend_str,
                 format_num(sys.particle_count),
                 format_num(sys.quads_rendered)
+            ));
+        }
+        out.push_str("\n");
+    }
+
+    // Instancing Candidates
+    if analysis.instancing.total_potential_saved_draws > 0 {
+        out.push_str("## 9. Instancing & Batching Candidates\n\n");
+        out.push_str(&format!("> [!TIP]\n> {}\n\n", analysis.instancing.recommendation));
+        out.push_str("| Buffer Size (KB) | Tris/Instance | Calls | Total Tris | Potential Saved Calls | Sample Draws |\n");
+        out.push_str("|---|---|---|---|---|---|\n");
+        for c in analysis.instancing.candidates.iter().take(10) {
+            let draws_sample = c.draw_indices.iter().take(4).map(|i| format!("#{}", i)).collect::<Vec<_>>().join(", ");
+            out.push_str(&format!(
+                "| {:.1} KB | {} | **{}** | {} | **-{} calls** | {} |\n",
+                c.position_buffer_bytes as f64 / 1024.0,
+                format_num(c.triangles_per_instance),
+                c.draw_count,
+                format_num(c.total_triangles),
+                c.potential_saved_draws,
+                draws_sample
+            ));
+        }
+        out.push_str("\n");
+    }
+
+    // WebGL State Thrashing & Redundancy
+    out.push_str("## 10. WebGL State Thrashing & Redundancy\n\n");
+    out.push_str(&format!("- Total WebGL State Calls: **{}**\n", format_num(analysis.states.total_state_calls)));
+    out.push_str(&format!("- Total Redundant Calls: **{}** (**{:.1}%** redundant)\n", format_num(analysis.states.total_redundant_calls), analysis.states.overall_redundancy_pct));
+    out.push_str(&format!("- Draw Call Modes: **{}** opaque, **{}** blended (alpha)\n\n", analysis.states.opaque_draws, analysis.states.blended_draws));
+
+    out.push_str("| WebGL State Call | Total Calls | Redundant Calls | Redundant % |\n");
+    out.push_str("|---|---|---|---|\n");
+    for s in &analysis.states.items {
+        if s.total_calls > 0 {
+            out.push_str(&format!("| `{}` | {} | **{}** | **{:.1}%** |\n", s.name, s.total_calls, s.redundant_calls, s.redundant_pct));
+        }
+    }
+    out.push_str("\n");
+
+    // Dynamic Buffers & Geometry
+    out.push_str("## 11. Geometry Buffers & Dynamic Uploads\n\n");
+    out.push_str(&format!("- Geometry Buffer Memory (VRAM): **{}**\n", format_bytes(analysis.buffers.total_buffer_memory_bytes)));
+    out.push_str(&format!("- Index Buffer Bitness: **{}** 16-bit draws, **{}** 32-bit draws\n", analysis.buffers.index_16bit_draws, analysis.buffers.index_32bit_draws));
+    out.push_str(&format!("- Dynamic Buffer Uploads: **{}** calls ({} duplicate), **{}** uploaded/frame\n\n",
+        analysis.buffers.total_dynamic_uploads,
+        analysis.buffers.duplicate_dynamic_uploads,
+        format_bytes(analysis.buffers.total_upload_bytes)
+    ));
+
+    if !analysis.buffers.meshes_32bit.is_empty() {
+        out.push_str("### Draw Calls Using 32-Bit Index Buffers (UNSIGNED_INT >65k vertices):\n\n");
+        out.push_str("| Draw # | Command # | Triangles | Target FBO | Shader | World Pos |\n");
+        out.push_str("|---|---|---|---|---|---|\n");
+        for m in &analysis.buffers.meshes_32bit {
+            let pos_str = m.world_position.map(|p| format!("({:.1}, {:.1}, {:.1})", p[0], p[1], p[2])).unwrap_or_else(|| "—".to_string());
+            out.push_str(&format!(
+                "| #{} | #{} | **{}** | {} | {} | {} |\n",
+                m.draw_index,
+                m.command_id,
+                format_num(m.triangles),
+                m.fbo_name,
+                m.shader_name,
+                pos_str
+            ));
+        }
+        out.push_str("\n");
+    }
+
+    if !analysis.buffers.uploads.is_empty() {
+        out.push_str("### Dynamic Buffer Uploads (bufferSubData):\n\n");
+        out.push_str("| Command # | Target | Offset | Size | Duplicate | Origin Stack Trace |\n");
+        out.push_str("|---|---|---|---|---|---|\n");
+        for u in &analysis.buffers.uploads {
+            let trace = u.stack_trace.first().map(|s| s.as_str()).unwrap_or("—");
+            out.push_str(&format!(
+                "| #{} | {} | {} | {} | {} | `{}` |\n",
+                u.command_index,
+                u.target_name,
+                u.offset,
+                format_bytes(u.size_bytes),
+                if u.is_duplicate { "⚠️ Yes" } else { "No" },
+                trace
+            ));
+        }
+        out.push_str("\n");
+    }
+
+    out
+}
+
+pub fn format_states_table(analysis: &crate::analysis::StateAnalysis) -> String {
+    let mut out = String::new();
+    out.push_str("# WebGL State Thrashing & Redundancy Audit\n\n");
+    out.push_str(&format!("- Total WebGL State Calls: **{}**\n", format_num(analysis.total_state_calls)));
+    out.push_str(&format!("- Total Redundant Calls: **{}** (**{:.1}%** redundant)\n", format_num(analysis.total_redundant_calls), analysis.overall_redundancy_pct));
+    out.push_str(&format!("- Draw Call Modes: **{}** opaque, **{}** blended (alpha)\n\n", analysis.opaque_draws, analysis.blended_draws));
+
+    if !analysis.warnings.is_empty() {
+        out.push_str("## Warnings & Opportunities\n\n");
+        for w in &analysis.warnings {
+            out.push_str(&format!("- ⚠️ {}\n", w));
+        }
+        out.push_str("\n");
+    }
+
+    out.push_str("## State Changes Breakdown\n\n");
+    out.push_str("| WebGL State Call | Total Calls | Redundant Calls | Redundant % |\n");
+    out.push_str("|---|---|---|---|\n");
+    for s in &analysis.items {
+        if s.total_calls > 0 {
+            out.push_str(&format!("| `{}` | {} | **{}** | **{:.1}%** |\n", s.name, s.total_calls, s.redundant_calls, s.redundant_pct));
+        }
+    }
+    out
+}
+
+pub fn format_buffers_table(analysis: &crate::analysis::BufferAnalysis) -> String {
+    let mut out = String::new();
+    out.push_str("# Geometry Buffers & Dynamic Uploads Audit\n\n");
+    out.push_str(&format!("- Geometry Buffer Memory (VRAM): **{}**\n", format_bytes(analysis.total_buffer_memory_bytes)));
+    out.push_str(&format!("- Index Buffer Bitness: **{}** 16-bit draws, **{}** 32-bit draws\n", analysis.index_16bit_draws, analysis.index_32bit_draws));
+    out.push_str(&format!("- Dynamic Buffer Uploads: **{}** calls ({} duplicate), **{}** uploaded/frame\n\n",
+        analysis.total_dynamic_uploads,
+        analysis.duplicate_dynamic_uploads,
+        format_bytes(analysis.total_upload_bytes)
+    ));
+
+    if !analysis.warnings.is_empty() {
+        out.push_str("## Warnings & Opportunities\n\n");
+        for w in &analysis.warnings {
+            out.push_str(&format!("- ⚠️ {}\n", w));
+        }
+        out.push_str("\n");
+    }
+
+    if !analysis.meshes_32bit.is_empty() {
+        out.push_str("## Draw Calls Using 32-Bit Index Buffers (UNSIGNED_INT >65k vertices)\n\n");
+        out.push_str("| Draw # | Command # | Triangles | Target FBO | Shader | World Pos |\n");
+        out.push_str("|---|---|---|---|---|---|\n");
+        for m in &analysis.meshes_32bit {
+            let pos_str = m.world_position.map(|p| format!("({:.1}, {:.1}, {:.1})", p[0], p[1], p[2])).unwrap_or_else(|| "—".to_string());
+            out.push_str(&format!(
+                "| #{} | #{} | **{}** | {} | {} | {} |\n",
+                m.draw_index,
+                m.command_id,
+                format_num(m.triangles),
+                m.fbo_name,
+                m.shader_name,
+                pos_str
+            ));
+        }
+        out.push_str("\n");
+    }
+
+    if !analysis.uploads.is_empty() {
+        out.push_str("## Dynamic Buffer Uploads (bufferSubData)\n\n");
+        out.push_str("| Command # | Target | Offset | Size | Duplicate | Origin Stack Trace |\n");
+        out.push_str("|---|---|---|---|---|---|\n");
+        for u in &analysis.uploads {
+            let trace = u.stack_trace.first().map(|s| s.as_str()).unwrap_or("—");
+            out.push_str(&format!(
+                "| #{} | {} | {} | {} | {} | `{}` |\n",
+                u.command_index,
+                u.target_name,
+                u.offset,
+                format_bytes(u.size_bytes),
+                if u.is_duplicate { "⚠️ Yes" } else { "No" },
+                trace
             ));
         }
         out.push_str("\n");

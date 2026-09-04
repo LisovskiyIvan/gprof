@@ -9,12 +9,17 @@ use std::process;
     name = "gprof",
     version = "0.1.0",
     about = "Ultra-fast SpectorJS WebGL / WebGPU capture analyzer & profiler",
-    long_about = "gprof is a native Rust profiler for SpectorJS JSON frame captures.\nIt rapidly surfaces actionable insights: texture VRAM hogging, GlowLayer occluder waste, shader permutations, and GPU particle bottlenecks."
+    long_about = "gprof is a native Rust profiler for SpectorJS JSON frame captures.\nIt rapidly surfaces actionable insights: texture VRAM hogging, GlowLayer occluder waste, shader permutations, and GPU particle bottlenecks.",
+    subcommand_precedence_over_arg = true
 )]
 struct Cli {
-    /// Path to SpectorJS JSON capture file (e.g. capture.json)
+    /// Path to SpectorJS JSON capture file (.json or .json.gz)
     #[arg(value_name = "CAPTURE_JSON")]
     capture: Option<PathBuf>,
+
+    /// Optional second capture file to compare against (A/B testing)
+    #[arg(short = 'c', long, value_name = "AFTER_JSON")]
+    compare: Option<PathBuf>,
 
     /// Subcommand for targeted inspection
     #[command(subcommand)]
@@ -48,6 +53,26 @@ struct Cli {
     #[arg(long)]
     uploads: bool,
 
+    /// Show only instancing & batching candidates
+    #[arg(short = 'i', long)]
+    instancing: bool,
+
+    /// Show only WebGL state thrashing & redundant calls audit
+    #[arg(long)]
+    states: bool,
+
+    /// Show only geometry buffers, dynamic uploads (bufferSubData), and 32-bit index buffers
+    #[arg(long)]
+    buffers: bool,
+
+    /// Filter items by substring (textures, shaders, or draw calls)
+    #[arg(long, global = true, value_name = "PATTERN")]
+    filter: Option<String>,
+
+    /// Filter draw calls by target FBO name / ID
+    #[arg(long, global = true, value_name = "FBO")]
+    fbo: Option<String>,
+
     /// Export analysis as Markdown to file or stdout (default stdout, e.g. --export=report.md)
     #[arg(short = 'e', long, global = true, num_args = 0..=1, default_missing_value = "-")]
     export: Option<String>,
@@ -66,6 +91,11 @@ enum Commands {
     /// Full frame analysis (default)
     Analyze {
         capture: PathBuf,
+    },
+    /// Compare two captures (before vs after)
+    Compare {
+        before: PathBuf,
+        after: PathBuf,
     },
     /// Detailed texture breakdown & VRAM usage
     Textures {
@@ -95,6 +125,18 @@ enum Commands {
     Uploads {
         capture: PathBuf,
     },
+    /// Detect duplicate geometry candidates for Thin/Hardware Instancing
+    Instancing {
+        capture: PathBuf,
+    },
+    /// WebGL state thrashing & redundant calls audit
+    States {
+        capture: PathBuf,
+    },
+    /// Geometry buffers, dynamic uploads (bufferSubData), and 32-bit index buffers
+    Buffers {
+        capture: PathBuf,
+    },
     /// Export full report as Markdown
     Export {
         capture: PathBuf,
@@ -107,6 +149,16 @@ enum Commands {
 fn main() {
     let cli = Cli::parse();
 
+    // Check compare mode first
+    if let Some(Commands::Compare { before, after }) = &cli.command {
+        run_compare(before, after, &cli);
+        return;
+    }
+    if let (Some(before), Some(after)) = (&cli.capture, &cli.compare) {
+        run_compare(before, after, &cli);
+        return;
+    }
+
     let (path, sub_cmd) = match (&cli.capture, &cli.command) {
         (Some(p), None) => (p.clone(), None),
         (None, Some(cmd)) => match cmd {
@@ -118,7 +170,11 @@ fn main() {
             Commands::Shaders { capture } => (capture.clone(), Some("shaders")),
             Commands::Particles { capture } => (capture.clone(), Some("particles")),
             Commands::Uploads { capture } => (capture.clone(), Some("uploads")),
+            Commands::Instancing { capture } => (capture.clone(), Some("instancing")),
+            Commands::States { capture } => (capture.clone(), Some("states")),
+            Commands::Buffers { capture } => (capture.clone(), Some("buffers")),
             Commands::Export { capture, .. } => (capture.clone(), Some("export")),
+            Commands::Compare { .. } => unreachable!(),
         },
         (Some(p), Some(cmd)) => match cmd {
             Commands::Analyze { .. } => (p.clone(), None),
@@ -129,7 +185,11 @@ fn main() {
             Commands::Shaders { .. } => (p.clone(), Some("shaders")),
             Commands::Particles { .. } => (p.clone(), Some("particles")),
             Commands::Uploads { .. } => (p.clone(), Some("uploads")),
+            Commands::Instancing { .. } => (p.clone(), Some("instancing")),
+            Commands::States { .. } => (p.clone(), Some("states")),
+            Commands::Buffers { .. } => (p.clone(), Some("buffers")),
             Commands::Export { .. } => (p.clone(), Some("export")),
+            Commands::Compare { .. } => unreachable!(),
         },
         (None, None) => {
             eprintln!("Error: No capture file specified.\nUsage: gprof <CAPTURE_JSON> [OPTIONS]\nRun 'gprof --help' for details.");
@@ -143,7 +203,7 @@ fn main() {
     }
 
     let t0 = std::time::Instant::now();
-    let capture = match parse_file(&path) {
+    let mut capture = match parse_file(&path) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error parsing SpectorJS capture: {}", e);
@@ -151,6 +211,26 @@ fn main() {
         }
     };
     let parse_time = t0.elapsed();
+
+    // Apply filters if requested
+    if let Some(pat) = &cli.filter {
+        let pat_lower = pat.to_lowercase();
+        capture.textures.retain(|t| {
+            t.format_name.to_lowercase().contains(&pat_lower)
+                || t.uniform_names.iter().any(|u| u.to_lowercase().contains(&pat_lower))
+        });
+        capture.draws.retain(|d| {
+            d.shader_name.to_lowercase().contains(&pat_lower)
+                || d.text.to_lowercase().contains(&pat_lower)
+        });
+        capture.programs.retain(|p| p.shader_name.to_lowercase().contains(&pat_lower));
+    }
+
+    if let Some(fbo_filter) = &cli.fbo {
+        let fbo_lower = fbo_filter.to_lowercase();
+        capture.draws.retain(|d| d.fbo_name.to_lowercase().contains(&fbo_lower));
+        capture.passes.retain(|p| p.fbo_name.to_lowercase().contains(&fbo_lower));
+    }
 
     let t1 = std::time::Instant::now();
     let analysis = analysis::analyze(&capture, cli.top);
@@ -167,7 +247,6 @@ fn main() {
         return;
     }
 
-    // Specific inspection mode requested
     let is_textures = cli.textures || sub_cmd == Some("textures");
     let is_glow = cli.glow || sub_cmd == Some("glow");
     let is_draws = cli.draws || sub_cmd == Some("draws");
@@ -175,6 +254,9 @@ fn main() {
     let is_shaders = cli.shaders || sub_cmd == Some("shaders");
     let is_particles = cli.particles || sub_cmd == Some("particles");
     let is_uploads = cli.uploads || sub_cmd == Some("uploads");
+    let is_instancing = cli.instancing || sub_cmd == Some("instancing");
+    let is_states = cli.states || sub_cmd == Some("states");
+    let is_buffers = cli.buffers || sub_cmd == Some("buffers");
     let is_export = cli.export.is_some() || sub_cmd == Some("export");
 
     if is_textures {
@@ -191,6 +273,12 @@ fn main() {
         print_particles(&analysis);
     } else if is_uploads {
         print_uploads(&analysis);
+    } else if is_instancing {
+        print_instancing(&analysis);
+    } else if is_states {
+        print!("{}", report::format_states_table(&analysis.states));
+    } else if is_buffers {
+        print!("{}", report::format_buffers_table(&analysis.buffers));
     } else if is_export {
         let report_md = report::format_full_report(&capture, &analysis);
         let export_target = cli.export.as_deref().unwrap_or("-");
@@ -214,6 +302,30 @@ fn main() {
             analyze_time.as_secs_f64() * 1000.0
         );
     }
+}
+
+fn run_compare(before_path: &Path, after_path: &Path, cli: &Cli) {
+    if !before_path.exists() {
+        eprintln!("Error: Before file not found: {}", before_path.display());
+        process::exit(1);
+    }
+    if !after_path.exists() {
+        eprintln!("Error: After file not found: {}", after_path.display());
+        process::exit(1);
+    }
+
+    let before = parse_file(before_path).expect("Failed to parse before capture");
+    let after = parse_file(after_path).expect("Failed to parse after capture");
+
+    let comp = analysis::compare_captures(&before, &after);
+
+    if cli.json {
+        println!("{}", serde_json::to_string_pretty(&comp).unwrap());
+        return;
+    }
+
+    let md = analysis::format_compare_markdown(&before, &after, &comp);
+    print!("{}", md);
 }
 
 fn write_export_file(path: &Path, content: &str) {
@@ -371,5 +483,28 @@ fn print_uploads(analysis: &ComprehensiveAnalysis) {
         let st = u.stack_trace.iter().take(2).cloned().collect::<Vec<_>>().join(" → ");
         let st_str = if st.is_empty() { "—".to_string() } else { st };
         println!("| {} | {} | {} | {}x{} | `{}` |", i + 1, u.name, u.target, u.width, u.height, st_str);
+    }
+}
+
+fn print_instancing(analysis: &ComprehensiveAnalysis) {
+    println!("# Instancing & Batching Audit\n");
+    println!("- Potential Saved Draw Calls: **-{}** calls/frame", analysis.instancing.total_potential_saved_draws);
+    println!("- Candidate Groups: **{}**\n", analysis.instancing.total_candidates_groups);
+
+    println!("> [!TIP]\n> {}\n", analysis.instancing.recommendation);
+
+    println!("| Buffer (KB) | Tris/Instance | Calls | Total Tris | Potential Saved | Sample Draws |");
+    println!("|---|---|---|---|---|---|");
+    for c in &analysis.instancing.candidates {
+        let draws_sample = c.draw_indices.iter().take(4).map(|i| format!("#{}", i)).collect::<Vec<_>>().join(", ");
+        println!(
+            "| {:.1} KB | {} | **{}** | {} | **-{} calls** | {} |",
+            c.position_buffer_bytes as f64 / 1024.0,
+            report::format_num(c.triangles_per_instance),
+            c.draw_count,
+            report::format_num(c.total_triangles),
+            c.potential_saved_draws,
+            draws_sample
+        );
     }
 }

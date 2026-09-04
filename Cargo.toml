@@ -16,6 +16,7 @@ rustc-hash = "2.1"
 memmap2 = "0.9"
 memchr = "2.7"
 regex = "1.11"
+flate2 = { version = "1.0", default-features = false, features = ["zlib-rs"] }
 
 [profile.release]
 opt-level = 3

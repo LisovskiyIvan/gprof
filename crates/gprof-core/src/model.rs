@@ -61,6 +61,12 @@ pub struct DrawCallItem {
     pub world_position: Option<[f32; 3]>,
     pub vertex_buffer_bytes: usize,
     pub vertex_count_estimate: usize,
+    pub is_instanced: bool,
+    pub index_type: Option<u32>,
+    pub index_type_name: Option<String>,
+    pub blend_enabled: bool,
+    pub depth_write: bool,
+    pub cull_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +111,50 @@ pub struct DynamicUploadItem {
     pub stack_trace: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DynamicBufferUploadItem {
+    pub command_index: usize,
+    pub name: String,
+    pub target: u32,
+    pub target_name: String,
+    pub offset: usize,
+    pub size_bytes: usize,
+    pub stack_trace: Vec<String>,
+    pub data_sample: Option<String>,
+    pub is_duplicate: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct StateChangeSummary {
+    pub depth_mask_calls: usize,
+    pub redundant_depth_mask: usize,
+    pub color_mask_calls: usize,
+    pub redundant_color_mask: usize,
+    pub blend_toggle_calls: usize,
+    pub redundant_blend_toggles: usize,
+    pub cull_toggle_calls: usize,
+    pub redundant_cull_toggles: usize,
+    pub depth_test_calls: usize,
+    pub redundant_depth_test: usize,
+    pub fbo_bind_calls: usize,
+    pub redundant_fbo_binds: usize,
+    pub texture_bind_calls: usize,
+    pub redundant_texture_binds: usize,
+    pub vao_bind_calls: usize,
+    pub redundant_vao_binds: usize,
+    pub use_program_calls: usize,
+    pub redundant_use_program: usize,
+    pub total_redundant_calls: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MemorySummary {
+    pub buffer_memory_bytes: usize,
+    pub texture_memory_bytes: usize,
+    pub program_memory_bytes: usize,
+    pub renderbuffer_memory_bytes: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FrameCaptureSummary {
     pub total_commands: usize,
@@ -116,6 +166,10 @@ pub struct FrameCaptureSummary {
     pub triangles: usize,
     pub points: usize,
     pub lines: usize,
+    pub blended_draws: usize,
+    pub opaque_draws: usize,
+    pub index_32bit_draws: usize,
+    pub index_16bit_draws: usize,
     pub unique_programs: usize,
     pub use_program_calls: usize,
     pub redundant_use_program: usize,
@@ -123,6 +177,8 @@ pub struct FrameCaptureSummary {
     pub fbo_bind_calls: usize,
     pub active_fbo_count: usize,
     pub dynamic_uploads_count: usize,
+    pub buffer_subdata_calls: usize,
+    pub duplicate_buffer_uploads: usize,
     pub total_texture_bytes: usize,
     pub total_textures_count: usize,
     pub glow_total_draws: usize,
@@ -140,10 +196,13 @@ pub struct ParsedCapture {
     pub canvas: Option<CanvasInfo>,
     pub context: Option<ContextInfo>,
     pub summary: FrameCaptureSummary,
+    pub state_changes: StateChangeSummary,
+    pub memory: MemorySummary,
     pub textures: Vec<TextureItem>,
     pub draws: Vec<DrawCallItem>,
     pub passes: Vec<RenderPassItem>,
     pub programs: Vec<ProgramItem>,
     pub particles: Vec<ParticleSystemItem>,
     pub uploads: Vec<DynamicUploadItem>,
+    pub buffer_uploads: Vec<DynamicBufferUploadItem>,
 }

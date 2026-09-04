@@ -1,16 +1,24 @@
+pub mod buffers;
+pub mod compare;
 pub mod draws;
 pub mod glow;
+pub mod instancing;
 pub mod passes;
 pub mod particles;
 pub mod shaders;
+pub mod states;
 pub mod textures;
 pub mod uploads;
 
+pub use buffers::*;
+pub use compare::*;
 pub use draws::*;
 pub use glow::*;
+pub use instancing::*;
 pub use passes::*;
 pub use particles::*;
 pub use shaders::*;
+pub use states::*;
 pub use textures::*;
 pub use uploads::*;
 
@@ -26,6 +34,9 @@ pub struct ComprehensiveAnalysis {
     pub shaders: ShadersAnalysisResult,
     pub particles: ParticlesAnalysisResult,
     pub uploads: UploadsAnalysisResult,
+    pub instancing: InstancingAnalysisResult,
+    pub states: StateAnalysis,
+    pub buffers: BufferAnalysis,
 }
 
 pub fn analyze(capture: &ParsedCapture, top_draws: usize) -> ComprehensiveAnalysis {
@@ -41,5 +52,8 @@ pub fn analyze(capture: &ParsedCapture, top_draws: usize) -> ComprehensiveAnalys
         ),
         particles: particles::analyze_particles(&capture.particles),
         uploads: uploads::analyze_uploads(&capture.uploads),
+        instancing: instancing::analyze_instancing(&capture.draws),
+        states: states::analyze(capture),
+        buffers: buffers::analyze(capture),
     }
 }
