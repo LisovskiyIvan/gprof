@@ -477,27 +477,17 @@ fn print_textures(capture: &ParsedCapture, analysis: &ComprehensiveAnalysis, top
     }
     println!();
 
-    if !analysis.textures.warnings.is_empty() {
-        println!("## Warnings & Optimization Opportunities\n");
-        for w in &analysis.textures.warnings {
-            println!("- ⚠️  [#{}] {}", w.texture_id, w.message);
-        }
-        println!();
-    }
-
     println!("{}", report::format_textures_table(&capture.textures, top));
 }
 
 fn print_glow(analysis: &ComprehensiveAnalysis) {
-    println!("# GlowLayer Occluder Audit\n");
+    println!("# GlowLayer Non-Emissive Occluder Geometry Audit\n");
     println!("- Total Glow Passes: **{}** draw calls, **{}** triangles", analysis.glow.total_draws, report::format_num(analysis.glow.total_triangles));
-    println!("- 🔴 **Black Occluders:** **{}** draw calls, **{}** triangles (**{:.1}% wasted**)", analysis.glow.black_occluder_draws, report::format_num(analysis.glow.black_occluder_triangles), analysis.glow.wasted_triangle_percentage);
-    println!("- 🟢 **Active Glowing:** **{}** draw calls, **{}** triangles\n", analysis.glow.active_glowing_draws, report::format_num(analysis.glow.active_glowing_triangles));
-
-    println!("> [!IMPORTANT]\n> {}\n", analysis.glow.recommendation);
+    println!("- 🟡 **Non-Emissive Occluders:** **{}** draw calls, **{}** triangles (**{:.1}%** of glow geometry)", analysis.glow.black_occluder_draws, report::format_num(analysis.glow.black_occluder_triangles), analysis.glow.occluder_triangle_percentage);
+    println!("- 🟢 **Active Emissive Glowing:** **{}** draw calls, **{}** triangles\n", analysis.glow.active_glowing_draws, report::format_num(analysis.glow.active_glowing_triangles));
 
     if !analysis.glow.top_black_occluders.is_empty() {
-        println!("## Heaviest Black Occluder Meshes:\n");
+        println!("## Heaviest Non-Emissive Occluder Meshes:\n");
         println!("| Draw # | Command # | Triangles | Buffer (KB) | World Position (X, Y, Z) |");
         println!("|---|---|---|---|---|");
         for m in &analysis.glow.top_black_occluders {
@@ -580,10 +570,6 @@ fn print_particles(analysis: &ComprehensiveAnalysis) {
     println!("- Total Active Particles: **{}** points", report::format_num(analysis.particles.total_particles));
     println!("- Total Quad Triangles: **{}**\n", report::format_num(analysis.particles.total_quad_triangles));
 
-    if let Some(w) = &analysis.particles.warning {
-        println!("> [!WARNING]\n> {}\n", w);
-    }
-
     println!("| System # | Update Draw # | Render Draw # | Particle Count | Quad Triangles |");
     println!("|---|---|---|---|---|");
     for (i, sys) in analysis.particles.systems.iter().enumerate() {
@@ -603,10 +589,6 @@ fn print_uploads(analysis: &ComprehensiveAnalysis) {
     println!("# Dynamic Texture Uploads\n");
     println!("- Total per-frame uploads: **{}**\n", analysis.uploads.total_uploads);
 
-    if let Some(w) = &analysis.uploads.warning {
-        println!("> [!WARNING]\n> {}\n", w);
-    }
-
     println!("| # | Command | Target | Dimensions | Stack Trace |");
     println!("|---|---|---|---|---|");
     for (i, u) in analysis.uploads.uploads.iter().enumerate() {
@@ -620,8 +602,6 @@ fn print_instancing(analysis: &ComprehensiveAnalysis) {
     println!("# Instancing & Batching Audit\n");
     println!("- Potential Saved Draw Calls: **-{}** calls/frame", analysis.instancing.total_potential_saved_draws);
     println!("- Candidate Groups: **{}**\n", analysis.instancing.total_candidates_groups);
-
-    println!("> [!TIP]\n> {}\n", analysis.instancing.recommendation);
 
     println!("| Buffer (KB) | Tris/Instance | Calls | Total Tris | Potential Saved | Sample Draws |");
     println!("|---|---|---|---|---|---|");

@@ -14,6 +14,8 @@ pub struct SceneNodeItem {
     pub id: usize,
     pub name: String,
     pub category: String,
+    pub source_name: String,
+    pub draw_indices: Vec<usize>,
     pub world_position: Option<[f32; 3]>,
     pub draw_count: usize,
     pub total_triangles: usize,
@@ -139,23 +141,29 @@ pub fn analyze_scene_tree(capture: &ParsedCapture) -> SceneTreeAnalysisResult {
             }
         }
 
-        // Determine name and category
+        let draws_preview = if draw_indices.len() <= 3 {
+            draw_indices.iter().map(|i| format!("#{}", i)).collect::<Vec<_>>().join(", ")
+        } else {
+            format!("#{}, #{}, ... (#{} total)", draw_indices[0], draw_indices[1], draw_indices.len())
+        };
+
+        // Determine name and category (explicitly marked as Heuristic)
         let (category, name) = match key {
             NodeKey::Particles => (
-                "GPU Particle System".to_string(),
-                "GPU Transform Feedback Particle Emitters".to_string(),
+                "[Heuristic] GPU Particle System".to_string(),
+                format!("[Heuristic] Particle Emitters (Draws: {})", draws_preview),
             ),
             NodeKey::LayerUI => (
-                "UI / 2D Layer".to_string(),
-                "Screen Space UI & Canvas Layer".to_string(),
+                "[Heuristic] UI / 2D Layer".to_string(),
+                format!("[Heuristic] Screen Space UI Layer (Draws: {})", draws_preview),
             ),
             NodeKey::PostProcess(ref sname) => (
-                "Post-Process Effect".to_string(),
-                format!("{} (Fullscreen Filter Quad)", sname),
+                "[Heuristic] Post-Process Effect".to_string(),
+                format!("[Heuristic] {} Quad (Draws: {})", sname, draws_preview),
             ),
             NodeKey::Instanced(bytes) => (
-                "Instanced Mesh Group".to_string(),
-                format!("Instanced Environment Props ({:.1} KB buffer)", bytes as f64 / 1024.0),
+                "[Heuristic] Instanced Mesh Group".to_string(),
+                format!("[Heuristic] Instanced Group ({:.1} KB buffer, Draws: {})", bytes as f64 / 1024.0, draws_preview),
             ),
             NodeKey::WorldPos([px, py, pz], _) => {
                 let x = px as f32 / 10.0;
@@ -168,29 +176,29 @@ pub fn analyze_scene_tree(capture: &ParsedCapture) -> SceneTreeAnalysisResult {
 
                 if is_vat {
                     (
-                        "Character (VAT Animated)".to_string(),
-                        format!("VAT Animated Character @ ({:.1}, {:.1}, {:.1})", x, y, z),
+                        "[Heuristic] Character (VAT Animated)".to_string(),
+                        format!("[Heuristic] VAT Mesh @ ({:.1}, {:.1}, {:.1}) (Draws: {})", x, y, z, draws_preview),
                     )
                 } else if uses_32bit_index || total_triangles >= 100_000 {
                     (
-                        "Hero Mesh (32-Bit Index)".to_string(),
-                        format!("Hero Mesh @ ({:.1}, {:.1}, {:.1})", x, y, z),
+                        "[Heuristic] High-Poly Mesh (32-Bit Index)".to_string(),
+                        format!("[Heuristic] High-Poly Mesh @ ({:.1}, {:.1}, {:.1}) (Draws: {})", x, y, z, draws_preview),
                     )
                 } else if total_triangles >= 20_000 {
                     (
-                        "Medium-Poly Geometry".to_string(),
-                        format!("Environment Model @ ({:.1}, {:.1}, {:.1})", x, y, z),
+                        "[Heuristic] Medium-Poly Geometry".to_string(),
+                        format!("[Heuristic] Environment Model @ ({:.1}, {:.1}, {:.1}) (Draws: {})", x, y, z, draws_preview),
                     )
                 } else {
                     (
-                        "Static Scene Prop".to_string(),
-                        format!("Static Prop @ ({:.1}, {:.1}, {:.1})", x, y, z),
+                        "[Heuristic] Low-Poly Geometry".to_string(),
+                        format!("[Heuristic] Scene Prop @ ({:.1}, {:.1}, {:.1}) (Draws: {})", x, y, z, draws_preview),
                     )
                 }
             }
             NodeKey::Generic(ref sname) => (
-                "Scene Geometry".to_string(),
-                format!("Submesh (Shader: {})", sname),
+                "[Heuristic] Scene Geometry".to_string(),
+                format!("[Heuristic] Submesh [{}] (Draws: {})", sname, draws_preview),
             ),
         };
 
@@ -198,8 +206,10 @@ pub fn analyze_scene_tree(capture: &ParsedCapture) -> SceneTreeAnalysisResult {
             id: node_counter,
             name,
             category,
-            world_position: world_pos,
+            source_name: "unavailable (SpectorJS capture does not retain scene mesh names)".to_string(),
             draw_count: draw_indices.len(),
+            draw_indices,
+            world_position: world_pos,
             total_triangles,
             vertex_buffer_bytes: max_vram,
             shaders,
@@ -242,3 +252,4 @@ pub fn analyze_scene_tree(capture: &ParsedCapture) -> SceneTreeAnalysisResult {
         categories_summary,
     }
 }
+

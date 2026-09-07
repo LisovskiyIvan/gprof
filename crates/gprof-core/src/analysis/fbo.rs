@@ -7,6 +7,7 @@ pub struct FboSummaryItem {
     pub fbo_name: String,
     pub width: u32,
     pub height: u32,
+    pub dimension_source: String,
     pub vram_bytes: usize,
     pub pass_count: usize,
     pub draw_count: usize,
@@ -27,12 +28,23 @@ pub struct FboAnalysis {
 pub fn analyze_fbos(passes: &[RenderPassItem]) -> FboAnalysis {
     let mut backbuffer_res = None;
 
+    // 1. Look for drawing_buffer from canvas/passes
     for p in passes {
-        if p.fbo_name.contains("Default") || p.fbo_name.contains("Backbuffer") {
-            if let (Some(w), Some(h)) = (p.viewport_width, p.viewport_height) {
-                if w > 0 && h > 0 {
-                    backbuffer_res = Some((w, h));
-                    break;
+        if p.drawing_buffer.0 > 0 && p.drawing_buffer.1 > 0 {
+            backbuffer_res = Some(p.drawing_buffer);
+            break;
+        }
+    }
+
+    // 2. Fallback to default backbuffer viewport
+    if backbuffer_res.is_none() {
+        for p in passes {
+            if p.fbo_name.contains("Default") || p.fbo_name.contains("Backbuffer") {
+                if let (Some(w), Some(h)) = (p.viewport_width, p.viewport_height) {
+                    if w > 0 && h > 0 {
+                        backbuffer_res = Some((w, h));
+                        break;
+                    }
                 }
             }
         }
@@ -41,10 +53,22 @@ pub fn analyze_fbos(passes: &[RenderPassItem]) -> FboAnalysis {
     let mut map: FxHashMap<String, FboSummaryItem> = FxHashMap::default();
 
     for p in passes {
+        let is_backbuffer = p.fbo_name.contains("Default") || p.fbo_name.contains("Backbuffer");
+        let (p_w, p_h, p_source) = if is_backbuffer && p.drawing_buffer.0 > 0 && p.drawing_buffer.1 > 0 {
+            (p.drawing_buffer.0, p.drawing_buffer.1, "canvas.drawingBuffer".to_string())
+        } else if let (Some(w), Some(h)) = (p.viewport_width, p.viewport_height) {
+            (w, h, "gl.viewport".to_string())
+        } else if p.drawing_buffer.0 > 0 && p.drawing_buffer.1 > 0 {
+            (p.drawing_buffer.0, p.drawing_buffer.1, "canvas.drawingBuffer".to_string())
+        } else {
+            (0, 0, "Unknown".to_string())
+        };
+
         let entry = map.entry(p.fbo_name.clone()).or_insert_with(|| FboSummaryItem {
             fbo_name: p.fbo_name.clone(),
-            width: p.viewport_width.unwrap_or(0),
-            height: p.viewport_height.unwrap_or(0),
+            width: p_w,
+            height: p_h,
+            dimension_source: p_source.clone(),
             vram_bytes: p.vram_bytes,
             pass_count: 0,
             draw_count: 0,
@@ -53,9 +77,10 @@ pub fn analyze_fbos(passes: &[RenderPassItem]) -> FboAnalysis {
             is_oversized: false,
         });
 
-        if entry.width == 0 && p.viewport_width.is_some() {
-            entry.width = p.viewport_width.unwrap_or(0);
-            entry.height = p.viewport_height.unwrap_or(0);
+        if entry.width == 0 && p_w > 0 {
+            entry.width = p_w;
+            entry.height = p_h;
+            entry.dimension_source = p_source;
             entry.vram_bytes = p.vram_bytes;
         }
 
@@ -79,12 +104,12 @@ pub fn analyze_fbos(passes: &[RenderPassItem]) -> FboAnalysis {
             total_offscreen_vram += f.vram_bytes;
 
             if let Some((bw, bh)) = backbuffer_res {
-                let is_postprocess = f.pass_types.iter().any(|t| t.contains("Glow") || t.contains("Blur"));
+                let is_postprocess = f.pass_types.iter().any(|t| t.contains("Glow") || t.contains("Blur") || t.contains("Bloom"));
                 if is_postprocess && f.width >= bw && f.height >= bh && bw > 0 {
                     f.is_oversized = true;
                     warnings.push(format!(
-                        "FBO '{}' (used for post-processing) is running at 100% full screen resolution ({}x{}). Downscaling to half-resolution (0.5x) saves 75% fillrate.",
-                        f.fbo_name, f.width, f.height
+                        "[Hypothesis / Candidate] Post-process FBO '{}' ({}x{}, source: {}) matches canvas resolution ({}x{}). Downscaling blur/glow passes to half-resolution (0.5x) is a candidate optimization to reduce fillrate.",
+                        f.fbo_name, f.width, f.height, f.dimension_source, bw, bh
                     ));
                 }
             }
@@ -99,3 +124,5 @@ pub fn analyze_fbos(passes: &[RenderPassItem]) -> FboAnalysis {
         warnings,
     }
 }
+
+

@@ -18,7 +18,8 @@ pub struct GlowAuditResult {
     pub black_occluder_triangles: usize,
     pub active_glowing_draws: usize,
     pub active_glowing_triangles: usize,
-    pub wasted_triangle_percentage: f64,
+    pub occluder_triangle_percentage: f64,
+    pub wasted_triangle_percentage: f64, // preserved for backwards compatibility
     pub top_black_occluders: Vec<GlowOccluderMesh>,
     pub recommendation: String,
 }
@@ -35,7 +36,7 @@ pub fn audit_glow_layer(draws: &[DrawCallItem]) -> GlowAuditResult {
     let active_draws = total_draws.saturating_sub(black_draws);
     let active_triangles = total_triangles.saturating_sub(black_triangles);
 
-    let wasted_pct = if total_triangles > 0 {
+    let occluder_pct = if total_triangles > 0 {
         (black_triangles as f64 / total_triangles as f64) * 100.0
     } else {
         0.0
@@ -54,14 +55,14 @@ pub fn audit_glow_layer(draws: &[DrawCallItem]) -> GlowAuditResult {
 
     let rec = if black_draws > 0 {
         format!(
-            "SWITCH TO WHITELIST: {} of {} draw calls ({:.1}% triangles) in GlowLayer are pure black occluders. Use `glowLayer.addIncludedOnlyMesh()` to render only the {} glowing meshes.",
+            "[Hypothesis / Candidate] Non-emissive occluder geometry: {} of {} GlowLayer draw calls ({:.1}% triangles) render non-emissive meshes to mask background glow in the depth buffer. Verify whether all {} occluder meshes are required to block glow (e.g., distant background meshes can often be excluded via `glowLayer.addExcludedMesh()` or an explicit whitelist `addIncludedOnlyMesh()`).",
             black_draws,
             total_draws,
-            wasted_pct,
-            active_draws
+            occluder_pct,
+            black_draws
         )
     } else {
-        "GlowLayer is optimal: no black occluders detected.".to_string()
+        "[Observed Fact] GlowLayer contains only active emissive meshes; no masking occluders detected.".to_string()
     };
 
     GlowAuditResult {
@@ -71,8 +72,10 @@ pub fn audit_glow_layer(draws: &[DrawCallItem]) -> GlowAuditResult {
         black_occluder_triangles: black_triangles,
         active_glowing_draws: active_draws,
         active_glowing_triangles: active_triangles,
-        wasted_triangle_percentage: wasted_pct,
+        occluder_triangle_percentage: occluder_pct,
+        wasted_triangle_percentage: occluder_pct,
         top_black_occluders: top_occluders,
         recommendation: rec,
     }
 }
+

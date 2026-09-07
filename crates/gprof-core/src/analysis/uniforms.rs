@@ -12,6 +12,8 @@ pub struct UniformStats {
     pub matrix_calls: usize,
     pub redundant_matrix_calls: usize,
     pub avg_uniforms_per_draw: f64,
+    pub avg_api_calls_per_draw: f64,
+    pub avg_active_uniforms_per_draw: f64,
     pub max_uniforms_in_draw: usize,
     pub top_redundant_callers: Vec<UniformCallerStat>,
     pub redundant_by_type: Vec<UniformTypeStat>,
@@ -131,7 +133,7 @@ pub fn analyze_uniforms(capture: &ParsedCapture) -> UniformStats {
         .collect();
     top_redundant_callers.sort_by(|a, b| b.redundant_calls.cmp(&a.redundant_calls));
 
-    // Draw uniforms stats
+    // Draw uniforms stats: count declared active uniform variables on the shader for that draw
     let mut total_draw_uniforms = 0;
     let mut max_uniforms_in_draw = 0;
     let mut heaviest_uniform_draws = Vec::new();
@@ -150,11 +152,19 @@ pub fn analyze_uniforms(capture: &ParsedCapture) -> UniformStats {
         });
     }
 
-    let avg_uniforms_per_draw = if !capture.draws.is_empty() {
+    let avg_active_uniforms_per_draw = if !capture.draws.is_empty() {
         total_draw_uniforms as f64 / capture.draws.len() as f64
     } else {
         0.0
     };
+
+    let avg_api_calls_per_draw = if !capture.draws.is_empty() {
+        total_calls as f64 / capture.draws.len() as f64
+    } else {
+        0.0
+    };
+
+    let avg_uniforms_per_draw = avg_active_uniforms_per_draw;
 
     heaviest_uniform_draws.sort_by(|a, b| b.uniform_count.cmp(&a.uniform_count));
     heaviest_uniform_draws.truncate(15);
@@ -163,33 +173,31 @@ pub fn analyze_uniforms(capture: &ParsedCapture) -> UniformStats {
     let mut recommendations = Vec::new();
     if redundancy_pct >= 20.0 {
         recommendations.push(format!(
-            "⚠️ {:.1}% of uniform calls ({} of {}) transmitted identical data to the GPU. Eliminating redundant uniform dispatches reduces CPU driver overhead.",
-            redundancy_pct, redundant_calls, total_calls
+            "[Calculated Estimate] Redundant uniform dispatch: {:.1}% of gl.uniform* API calls ({} of {}) transmitted identical data to the driver ({} CPU-to-driver payload). Eliminating redundant uniform dispatches reduces CPU driver validation overhead.",
+            redundancy_pct, redundant_calls, total_calls, crate::report::format_bytes(redundant_bytes)
         ));
     }
 
     if redundant_matrix_calls > 0 {
         recommendations.push(format!(
-            "⚠️ {} redundant uniformMatrix4fv calls detected ({} wasted bytes). Engine.setMatrices repeatedly uploads unchanged viewProjection/world matrices. Add dirty flag caching before setting uniforms or migrate to Uniform Buffer Objects (UBO).",
-            redundant_matrix_calls, redundant_bytes
+            "[Hypothesis / Candidate] Matrix payload: {} redundant uniformMatrix4fv calls detected ({} CPU-to-driver payload). If world/viewProjection matrices do not change between draws, add dirty checking on the CPU or migrate to Uniform Buffer Objects (UBOs) in WebGL 2.",
+            redundant_matrix_calls, crate::report::format_bytes(redundant_bytes)
         ));
     }
 
     if let Some(top) = top_redundant_callers.first() {
         if top.redundant_calls > 5 {
             recommendations.push(format!(
-                "⚠️ Hotspot: '{}' triggered {} redundant uniform uploads ({:.1}% waste).",
+                "[Observed Fact] Caller hotspot: '{}' issued {} redundant uniform uploads ({:.1}% redundant).",
                 top.caller, top.redundant_calls, top.redundant_pct
             ));
         }
     }
 
-    if avg_uniforms_per_draw >= 20.0 {
-        recommendations.push(format!(
-            "ℹ️ High uniform density: average {:.1} uniforms per draw call (max {} in a single draw). Grouping material parameters into UBOs significantly speeds up draw preparation on the CPU.",
-            avg_uniforms_per_draw, max_uniforms_in_draw
-        ));
-    }
+    recommendations.push(format!(
+        "[Observed Fact] Uniform frequency: average {:.2} gl.uniform* API calls per draw call (total {} calls across {} draws), while shaders declare an average of {:.1} active uniform variables (max {} in a single draw).",
+        avg_api_calls_per_draw, total_calls, capture.draws.len(), avg_active_uniforms_per_draw, max_uniforms_in_draw
+    ));
 
     UniformStats {
         total_calls,
@@ -200,6 +208,8 @@ pub fn analyze_uniforms(capture: &ParsedCapture) -> UniformStats {
         matrix_calls,
         redundant_matrix_calls,
         avg_uniforms_per_draw,
+        avg_api_calls_per_draw,
+        avg_active_uniforms_per_draw,
         max_uniforms_in_draw,
         top_redundant_callers,
         redundant_by_type,
@@ -207,3 +217,4 @@ pub fn analyze_uniforms(capture: &ParsedCapture) -> UniformStats {
         recommendations,
     }
 }
+

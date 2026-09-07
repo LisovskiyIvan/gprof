@@ -79,11 +79,44 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
     let mut uploads = Vec::new();
     let mut buffer_uploads = Vec::new();
     let mut uniform_commands = Vec::new();
-    let mut current_uniform_values: FxHashMap<u32, String> = FxHashMap::default();
+    let mut current_uniform_values: FxHashMap<(u32, u32), String> = FxHashMap::default();
     let mut seen_buffer_samples: FxHashSet<String> = FxHashSet::default();
     let mut passes = Vec::new();
 
     let init_state = root.get("initState");
+    let drawing_buffer = (canvas.width.unwrap_or(0), canvas.height.unwrap_or(0));
+
+    let mut current_viewport = Rect {
+        x: 0,
+        y: 0,
+        width: drawing_buffer.0,
+        height: drawing_buffer.1,
+    };
+    if let Some(vp) = init_state.and_then(|s| s.get("DrawState")).and_then(|d| d.get("VIEWPORT")).and_then(|v| v.as_array()) {
+        if vp.len() >= 4 {
+            let x = vp[0].as_i64().unwrap_or(0) as i32;
+            let y = vp[1].as_i64().unwrap_or(0) as i32;
+            let w = vp[2].as_u64().unwrap_or(drawing_buffer.0 as u64) as u32;
+            let h = vp[3].as_u64().unwrap_or(drawing_buffer.1 as u64) as u32;
+            current_viewport = Rect { x, y, width: w, height: h };
+        }
+    }
+
+    let mut current_scissor = ScissorState::default();
+    if let Some(sc) = init_state.and_then(|s| s.get("ScissorState")) {
+        current_scissor.enabled = sc.get("SCISSOR_TEST").and_then(|v| v.as_bool()).unwrap_or(false);
+        if let Some(sb) = sc.get("SCISSOR_BOX").and_then(|v| v.as_array()) {
+            if sb.len() >= 4 {
+                current_scissor.rect = Rect {
+                    x: sb[0].as_i64().unwrap_or(0) as i32,
+                    y: sb[1].as_i64().unwrap_or(0) as i32,
+                    width: sb[2].as_u64().unwrap_or(0) as u32,
+                    height: sb[3].as_u64().unwrap_or(0) as u32,
+                };
+            }
+        }
+    }
+
     let mut current_depth_mask = init_state
         .and_then(|s| s.get("DepthState"))
         .and_then(|d| d.get("DEPTH_WRITEMASK"))
@@ -120,7 +153,6 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
     let mut program_shaders: FxHashMap<u32, (String, Vec<String>)> = FxHashMap::default();
 
     // Pass tracking
-    let mut current_viewport: Option<(u32, u32)> = None;
     let mut current_pass = RenderPassItem {
         pass_index: 0,
         fbo_name: current_fbo.clone(),
@@ -130,9 +162,11 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
         points: 0,
         shaders: Vec::new(),
         start_command: 0,
-        viewport_width: None,
-        viewport_height: None,
-        vram_bytes: 0,
+        viewport_width: Some(current_viewport.width),
+        viewport_height: Some(current_viewport.height),
+        drawing_buffer,
+        scissor: if current_scissor.enabled { Some(current_scissor) } else { None },
+        vram_bytes: (current_viewport.width as usize) * (current_viewport.height as usize) * 8,
     };
 
     let empty_vec = Vec::new();
@@ -198,6 +232,9 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
                                 }
                                 current_depth_test = true;
                             }
+                            3089 => {
+                                current_scissor.enabled = true;
+                            }
                             _ => {}
                         }
                     }
@@ -228,8 +265,22 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
                                 }
                                 current_depth_test = false;
                             }
+                            3089 => {
+                                current_scissor.enabled = false;
+                            }
                             _ => {}
                         }
+                    }
+                }
+            }
+            "scissor" => {
+                if let Some(args) = args {
+                    if args.len() >= 4 {
+                        let x = args[0].as_i64().unwrap_or(0) as i32;
+                        let y = args[1].as_i64().unwrap_or(0) as i32;
+                        let w = args[2].as_u64().unwrap_or(0) as u32;
+                        let h = args[3].as_u64().unwrap_or(0) as u32;
+                        current_scissor.rect = Rect { x, y, width: w, height: h };
                     }
                 }
             }
@@ -306,9 +357,11 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
                             points: 0,
                             shaders: Vec::new(),
                             start_command: cmd_idx,
-                            viewport_width: current_viewport.map(|v| v.0),
-                            viewport_height: current_viewport.map(|v| v.1),
-                            vram_bytes: current_viewport.map(|v| (v.0 as usize) * (v.1 as usize) * 8).unwrap_or(0),
+                            viewport_width: Some(current_viewport.width),
+                            viewport_height: Some(current_viewport.height),
+                            drawing_buffer,
+                            scissor: if current_scissor.enabled { Some(current_scissor) } else { None },
+                            vram_bytes: (current_viewport.width as usize) * (current_viewport.height as usize) * 8,
                         };
                     } else {
                         current_pass.fbo_name = new_fbo.clone();
@@ -319,9 +372,11 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
             "viewport" => {
                 if let Some(args) = args {
                     if args.len() >= 4 {
+                        let x = args[0].as_i64().unwrap_or(0) as i32;
+                        let y = args[1].as_i64().unwrap_or(0) as i32;
                         let w = args[2].as_u64().unwrap_or(0) as u32;
                         let h = args[3].as_u64().unwrap_or(0) as u32;
-                        current_viewport = Some((w, h));
+                        current_viewport = Rect { x, y, width: w, height: h };
                         current_pass.viewport_width = Some(w);
                         current_pass.viewport_height = Some(h);
                         current_pass.vram_bytes = (w as usize) * (h as usize) * 8;
@@ -468,15 +523,16 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
                     }
                 }
 
-                if let Some(lid) = loc_id {
-                    if let Some(prev) = current_uniform_values.get(&lid) {
+                if let (Some(pid), Some(lid)) = (current_program_id, loc_id) {
+                    let ukey = (pid, lid);
+                    if let Some(prev) = current_uniform_values.get(&ukey) {
                         if prev == &val_str {
                             is_redundant = true;
                             summary.redundant_uniform_calls += 1;
                             summary.redundant_uniform_bytes += bytes;
                         }
                     }
-                    current_uniform_values.insert(lid, val_str);
+                    current_uniform_values.insert(ukey, val_str);
                 }
                 summary.uniform_bytes += bytes;
 
@@ -751,6 +807,7 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
                 points,
                 lines,
                 fbo_name: current_fbo.clone(),
+                pass_index: passes.len(),
                 program_id: current_program_id,
                 shader_name: shader_name.clone(),
                 is_glow_pass,
@@ -766,8 +823,12 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
                 depth_write: current_depth_mask,
                 cull_enabled: current_cull_enabled,
                 uniform_count,
+                active_uniform_count: uniform_count,
                 samplers,
                 stack_component,
+                viewport: current_viewport,
+                scissor: current_scissor,
+                drawing_buffer,
             };
 
             // Update current pass
@@ -800,20 +861,61 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
         let units: Vec<u32> = tex_bound_units.get(&tid).map(|s| s.iter().copied().collect()).unwrap_or_default();
         let unames: Vec<String> = tex_uniform_names.get(&tid).map(|s| s.iter().cloned().collect()).unwrap_or_default();
         let is_pot = raw.width > 0 && raw.height > 0 && raw.width.is_power_of_two() && raw.height.is_power_of_two();
-        total_texture_bytes += raw.length;
+
+        let (vram_bytes, base_bytes, mip_levels, comp_status, method) =
+            gl_enum::calculate_texture_memory(
+                raw.width,
+                raw.height,
+                raw.internal_format,
+                raw.format,
+                raw.r#type,
+                &raw.target,
+                raw.length,
+            );
+
+        let category = classify_texture_category(
+            &unames,
+            raw.internal_format,
+            raw.format,
+            raw.r#type,
+            raw.width,
+            raw.height,
+            &raw.target,
+        );
+
+        total_texture_bytes += vram_bytes;
+
+        let is_compressed = comp_status == CompressionStatus::Compressed;
+
+        let format_display = if raw.format == 0 {
+            if is_compressed { "—".to_string() } else { "UNKNOWN".to_string() }
+        } else {
+            gl_enum::format_name(raw.format).to_string()
+        };
+
+        let type_display = if raw.r#type == 0 {
+            if is_compressed { "—".to_string() } else { "UNKNOWN".to_string() }
+        } else {
+            gl_enum::type_name(raw.r#type).to_string()
+        };
 
         textures.push(TextureItem {
             id: tid,
             width: raw.width,
             height: raw.height,
             format: raw.format,
-            format_name: gl_enum::format_name(raw.format).to_string(),
+            format_name: format_display,
             internal_format: raw.internal_format,
             internal_format_name: gl_enum::format_name(raw.internal_format).to_string(),
             r#type: raw.r#type,
-            type_name: gl_enum::type_name(raw.r#type).to_string(),
-            length: raw.length,
-            is_compressed: raw.is_compressed,
+            type_name: type_display,
+            length: vram_bytes,
+            base_bytes,
+            mip_levels,
+            is_compressed,
+            compression_status: comp_status,
+            estimation_method: method,
+            category,
             target: raw.target,
             draw_count: draw_cnt,
             bound_units: units,
@@ -925,6 +1027,98 @@ fn extract_spektor_id(v: &Value) -> Option<u32> {
     }
 }
 
+fn classify_texture_category(
+    uniform_names: &[String],
+    internal_format: u32,
+    format: u32,
+    type_val: u32,
+    width: u32,
+    height: u32,
+    target: &str,
+) -> TextureUsageCategory {
+    let unames_lower: Vec<String> = uniform_names.iter().map(|u| u.to_lowercase()).collect();
+    let is_anim = unames_lower.iter().any(|u| {
+        u.contains("vat")
+            || u.contains("bone")
+            || u.contains("palette")
+            || u.contains("additive")
+            || u.contains("motion")
+            || u.contains("velocity")
+            || u.contains("morph")
+            || u.contains("upperadditive")
+            || u.contains("upperwholebody")
+            || u.contains("random")
+            || u.contains("noise")
+            || u.contains("lut")
+            || u.contains("curve")
+            || u.contains("ramp")
+            || u.contains("data")
+    });
+    if is_anim {
+        return TextureUsageCategory::GpuAnimationData;
+    }
+
+    // 1D buffer textures (e.g. 16384x1 or 1x16384) are data/LUT textures
+    if (width > 0 && height > 0) && (width == 1 || height == 1) {
+        return TextureUsageCategory::GpuAnimationData;
+    }
+
+    let is_rt = unames_lower.iter().any(|u| {
+        u.contains("blur")
+            || u.contains("kernel")
+            || u.contains("merge")
+            || u.contains("depth")
+            || u.contains("shadow")
+            || u.contains("fbo")
+            || u.contains("pass")
+            || u.contains("rtt")
+    });
+    if is_rt {
+        return TextureUsageCategory::RenderTarget;
+    }
+
+    let is_color = unames_lower.iter().any(|u| {
+        u.contains("diffuse")
+            || u.contains("albedo")
+            || u.contains("color")
+            || u.contains("base")
+            || u.contains("bump")
+            || u.contains("normal")
+            || u.contains("specular")
+            || u.contains("emissive")
+            || u.contains("reflectivity")
+            || u.contains("mask")
+            || u.contains("star")
+            || u.contains("sky")
+            || u.contains("lightmap")
+            || u.contains("ambient")
+            || u.contains("opacity")
+    });
+    if is_color {
+        return TextureUsageCategory::ColorMaterial;
+    }
+
+    // Format-based heuristic: Float / Half-Float without explicit color sampler names is data
+    if gl_enum::is_float_or_half_float(internal_format, format, type_val) {
+        return TextureUsageCategory::GpuAnimationData;
+    }
+
+    // Extreme aspect ratio (e.g. Nx1 or 1xN or > 8:1 ratio with height > 2000)
+    if (width > 0 && height > 0) && ((height > width * 8) || (width > height * 8)) {
+        return TextureUsageCategory::GpuAnimationData;
+    }
+
+    if target == "TEXTURE_CUBE_MAP" {
+        return TextureUsageCategory::ColorMaterial;
+    }
+
+    if internal_format != 0 || format != 0 {
+        return TextureUsageCategory::ColorMaterial;
+    }
+
+    TextureUsageCategory::Unknown
+}
+
 fn collect_textures(v: &Value, map: &mut FxHashMap<u32, RawTexData>) {
     match v {
         Value::Object(obj) => {
@@ -939,11 +1133,13 @@ fn collect_textures(v: &Value, map: &mut FxHashMap<u32, RawTexData>) {
                             item.internal_format = cd.get("internalFormat").and_then(|f| f.as_u64()).unwrap_or(0) as u32;
                             item.r#type = cd.get("type").and_then(|t| t.as_u64()).unwrap_or(0) as u32;
                             item.length = cd.get("length").and_then(|l| l.as_u64()).unwrap_or(0) as usize;
-                            item.is_compressed = cd.get("isCompressed").and_then(|c| c.as_bool()).unwrap_or(false);
+                            item.is_compressed = cd.get("isCompressed").and_then(|c| c.as_bool()).unwrap_or(false)
+                                || gl_enum::is_compressed_format(item.internal_format)
+                                || gl_enum::is_compressed_format(item.format);
                             item.target = cd.get("target").and_then(|t| t.as_str()).unwrap_or("").to_string();
                         }
                         map.entry(id).and_modify(|existing| {
-                            if item.length > existing.length {
+                            if item.length > existing.length || (existing.internal_format == 0 && item.internal_format != 0) {
                                 *existing = item.clone();
                             }
                         }).or_insert(item);

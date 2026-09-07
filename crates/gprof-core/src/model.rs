@@ -20,6 +20,75 @@ pub struct ContextInfo {
     pub compressed_formats: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CompressionStatus {
+    Compressed,
+    Uncompressed,
+    Unknown,
+}
+
+impl CompressionStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CompressionStatus::Compressed => "Yes",
+            CompressionStatus::Uncompressed => "No",
+            CompressionStatus::Unknown => "Unknown",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextureEstimationMethod {
+    StorageSize,       // Exact known length from storage/upload
+    FormatCalculation, // Calculated from known internalFormat / format / type
+    EstimatedFallback, // Assumed fallback (e.g. 4 B/px) due to missing format
+    Unknown,           // Insufficient data
+}
+
+impl TextureEstimationMethod {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TextureEstimationMethod::StorageSize => "Storage (exact)",
+            TextureEstimationMethod::FormatCalculation => "Calculated (format)",
+            TextureEstimationMethod::EstimatedFallback => "Estimated (fallback)",
+            TextureEstimationMethod::Unknown => "Unknown",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextureUsageCategory {
+    ColorMaterial,    // Albedo, diffuse, normal, roughness, emissive, metallic, pbr
+    GpuAnimationData, // VAT (Vertex Animation Texture), bone palettes, matrix textures, float data
+    RenderTarget,     // FBO attachments, depth, bloom/blur
+    Unknown,          // Unidentified purpose
+}
+
+impl TextureUsageCategory {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TextureUsageCategory::ColorMaterial => "Color / Material",
+            TextureUsageCategory::GpuAnimationData => "GPU Animation / Data",
+            TextureUsageCategory::RenderTarget => "Render Target / PostProcess",
+            TextureUsageCategory::Unknown => "Unknown / Unclassified",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ScissorState {
+    pub enabled: bool,
+    pub rect: Rect,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextureItem {
     pub id: u32,
@@ -32,7 +101,12 @@ pub struct TextureItem {
     pub r#type: u32,
     pub type_name: String,
     pub length: usize,
+    pub base_bytes: usize,
+    pub mip_levels: usize,
     pub is_compressed: bool,
+    pub compression_status: CompressionStatus,
+    pub estimation_method: TextureEstimationMethod,
+    pub category: TextureUsageCategory,
     pub target: String,
     pub draw_count: usize,
     pub bound_units: Vec<u32>,
@@ -54,6 +128,7 @@ pub struct DrawCallItem {
     pub points: usize,
     pub lines: usize,
     pub fbo_name: String,
+    pub pass_index: usize,
     pub program_id: Option<u32>,
     pub shader_name: String,
     pub is_glow_pass: bool,
@@ -69,8 +144,12 @@ pub struct DrawCallItem {
     pub depth_write: bool,
     pub cull_enabled: bool,
     pub uniform_count: usize,
+    pub active_uniform_count: usize,
     pub samplers: Vec<String>,
     pub stack_component: Option<String>,
+    pub viewport: Rect,
+    pub scissor: ScissorState,
+    pub drawing_buffer: (u32, u32),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,6 +164,8 @@ pub struct RenderPassItem {
     pub start_command: usize,
     pub viewport_width: Option<u32>,
     pub viewport_height: Option<u32>,
+    pub drawing_buffer: (u32, u32),
+    pub scissor: Option<ScissorState>,
     pub vram_bytes: usize,
 }
 

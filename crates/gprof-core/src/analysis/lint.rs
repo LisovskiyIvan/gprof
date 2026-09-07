@@ -1,5 +1,5 @@
 use crate::analysis::ComprehensiveAnalysis;
-use crate::model::ParsedCapture;
+use crate::model::{ParsedCapture, TextureUsageCategory};
 use crate::report::{format_bytes, format_num};
 use serde::{Deserialize, Serialize};
 
@@ -58,34 +58,37 @@ pub fn run_linter(capture: &ParsedCapture, analysis: &ComprehensiveAnalysis) -> 
     if analysis.glow.black_occluder_draws > 0 {
         rules.push(LintRule {
             id: "BABYLON-001".to_string(),
-            severity: LintSeverity::Critical,
-            title: "GlowLayer Renders Non-Glowing Geometry as Black Occluders".to_string(),
+            severity: LintSeverity::Medium,
+            title: "GlowLayer Evaluates Non-Emissive Geometry for Occlusion Masking".to_string(),
             impact: format!(
-                "{} draw calls and {} triangles ({:.1}% of glow pass) wasted on black occluders.",
+                "[Hypothesis / Candidate] {} occluder draw calls ({} triangles, {:.1}% of glow pass) mask background glow. {} active glowing draws.",
                 analysis.glow.black_occluder_draws,
                 format_num(analysis.glow.black_occluder_triangles),
-                analysis.glow.wasted_triangle_percentage
+                analysis.glow.occluder_triangle_percentage,
+                analysis.glow.active_glowing_draws
             ),
-            description: "By default in Babylon.js, GlowLayer renders all meshes in the scene with pure black [0,0,0,1] to occlude glow behind them. Switching GlowLayer to whitelist mode renders only active glowing meshes, eliminating all occluder draw calls.".to_string(),
-            code_fix: r#"// Switch GlowLayer from blacklist to whitelist mode:
+            description: "In Babylon.js, GlowLayer renders non-emissive meshes in black to write depth and prevent glow from bleeding through foreground objects. Verify whether distant background meshes or non-occluding objects can be excluded using custom include/exclude lists to reduce pass draw calls.".to_string(),
+            code_fix: r#"// Configure GlowLayer inclusion/exclusion list:
 const glowLayer = new BABYLON.GlowLayer("glow", scene);
-// Whitelist only meshes that actually have emissive/glow materials:
-glowingMeshes.forEach(mesh => glowLayer.addIncludedOnlyMesh(mesh));"#.to_string(),
+// Option A: Explicit whitelist of only glowing meshes
+glowingMeshes.forEach(m => glowLayer.addIncludedOnlyMesh(m));
+// Option B: Exclude distant background meshes from occluding
+backgroundMeshes.forEach(m => glowLayer.addExcludedMesh(m));"#.to_string(),
         });
     }
 
-    // 2. Thin Instancing Candidates
+    // 2. Instancing Candidates (Pass-Isolated)
     if analysis.instancing.total_potential_saved_draws > 5 {
         rules.push(LintRule {
             id: "BABYLON-002".to_string(),
-            severity: LintSeverity::High,
-            title: "Duplicate Geometry Rendered in Separate Draw Calls".to_string(),
+            severity: LintSeverity::Medium,
+            title: "Duplicate Geometry Within Render Passes (Instancing Candidates)".to_string(),
             impact: format!(
-                "Can eliminate up to {} draw calls per frame across {} candidate groups.",
+                "[Hypothesis / Candidate] Theoretical upper bound: up to {} draw calls could be merged across {} candidate groups within their respective passes.",
                 analysis.instancing.total_potential_saved_draws,
                 analysis.instancing.total_candidates_groups
             ),
-            description: "Found multiple draw calls sharing identical vertex buffers and shaders. Merging these into Babylon.js Thin Instances batches them into a single instanced draw call on the GPU.".to_string(),
+            description: "Multiple draw calls within individual render passes share identical vertex buffer allocations and shaders. Merging them into Babylon.js Thin Instances batches them into a single instanced draw call per pass (feasibility depends on dynamic uniform variation and culling).".to_string(),
             code_fix: r#"// Combine duplicate meshes into Babylon.js Thin Instances:
 const matrices = new Float32Array(instanceCount * 16);
 instances.forEach((inst, i) => inst.matrix.copyToArray(matrices, i * 16));
@@ -97,13 +100,13 @@ masterMesh.thinInstanceSetBuffer("matrix", matrices, 16, false);"#.to_string(),
     if analysis.compression.estimated_ktx2_savings_bytes > 50 * 1024 * 1024 {
         rules.push(LintRule {
             id: "BABYLON-003".to_string(),
-            severity: LintSeverity::High,
-            title: "Uncompressed Textures Bloat GPU VRAM".to_string(),
+            severity: LintSeverity::Medium,
+            title: "Uncompressed Color Textures (KTX2 Compression Candidates)".to_string(),
             impact: format!(
-                "Save up to {} VRAM by converting uncompressed RGBA8 textures to KTX2.",
+                "[Calculated Estimate] Theoretical upper bound: converting uncompressed color textures could reduce VRAM by up to {} (~75% uncompressed color memory).",
                 format_bytes(analysis.compression.estimated_ktx2_savings_bytes)
             ),
-            description: "Textures are uploaded as uncompressed RGBA8 (4 bytes per pixel). Using KTX2 with ASTC/BC7/ETC2 reduces VRAM to 1 byte per pixel, cuts GPU bandwidth, and avoids CPU texture decompression.".to_string(),
+            description: "Color textures uploaded as uncompressed RGBA8 consume 4 bytes per pixel. Block compression (ASTC / BC7 / ETC2 via KTX2) reduces memory to ~1 byte per pixel. GPU animation/VAT data textures and already compressed textures are excluded.".to_string(),
             code_fix: r#"// Configure Babylon.js KTX2 Transcoder:
 BABYLON.KhronosTextureContainer2.URLConfig = {
     jsDecoderModule: "https://cdn.babylonjs.com/babylon.ktx2Decoder.js",
@@ -113,16 +116,16 @@ BABYLON.KhronosTextureContainer2.URLConfig = {
         });
     }
 
-    // 4. Skybox Oversized Textures
-    let skybox_8k = capture.textures.iter().filter(|t| t.width >= 8192 || t.height >= 8192).count();
-    if skybox_8k > 0 {
+    // 4. Oversized 8K Color Textures (excluding VAT and 1D LUTs)
+    let color_8k = capture.textures.iter().filter(|t| t.category == TextureUsageCategory::ColorMaterial && (t.width >= 8192 || t.height >= 8192) && t.width.min(t.height) >= 512).count();
+    if color_8k > 0 {
         rules.push(LintRule {
             id: "BABYLON-004".to_string(),
-            severity: LintSeverity::High,
-            title: "Oversized 8K Skybox Textures".to_string(),
-            impact: format!("{} textures are 8K (>=8192px), taking hundreds of megabytes of VRAM.", skybox_8k),
-            description: "8192x2048 textures consume 64 MB uncompressed VRAM per texture. Downscaling background skyboxes to 2048px preserves visual fidelity while saving up to 80% VRAM.".to_string(),
-            code_fix: r#"// Downscale skybox cubemap/equirectangular textures to 2K:
+            severity: LintSeverity::Medium,
+            title: "Oversized 8K Color / Skybox Textures".to_string(),
+            impact: format!("[Calculated Estimate] {} color textures have dimensions >= 8192px.", color_8k),
+            description: "High-resolution 8K color textures take substantial VRAM. Verifying whether 4K or 2K downscaling preserves sufficient visual fidelity can reduce memory pressure.".to_string(),
+            code_fix: r#"// Downscale background skybox or environment textures to 2K/4K:
 const skyboxTexture = new BABYLON.CubeTexture("textures/skybox_2k", scene);"#.to_string(),
         });
     }
@@ -133,9 +136,9 @@ const skyboxTexture = new BABYLON.CubeTexture("textures/skybox_2k", scene);"#.to
             id: "BABYLON-005".to_string(),
             severity: LintSeverity::Medium,
             title: "Duplicate Dynamic Buffer Uploads (bufferSubData)".to_string(),
-            impact: format!("{} calls uploaded identical data to the GPU in the same frame.", analysis.buffers.duplicate_dynamic_uploads),
-            description: "DThinInstanceManager or updateDynamicVertexBuffer is repeatedly uploading identical float matrix data. Add a dirty check before issuing updates to dynamic vertex buffers.".to_string(),
-            code_fix: r#"// In DThinInstanceManager, guard buffer update with dirty flag:
+            impact: format!("[Observed Fact] {} bufferSubData calls uploaded identical data to the driver in the same frame.", analysis.buffers.duplicate_dynamic_uploads),
+            description: "Dynamic vertex or transform feedback buffers are repeatedly uploaded with identical data. Guard buffer updates with dirty flags to eliminate redundant CPU-to-driver copies.".to_string(),
+            code_fix: r#"// Guard dynamic buffer updates with a dirty flag:
 if (this._isDirty) {
     this.flushDirty();
     this._isDirty = false;
@@ -143,18 +146,18 @@ if (this._isDirty) {
         });
     }
 
-    // 6. Per-Frame texImage2D Reallocations
+    // 6. Dynamic texImage2D Allocations
     if analysis.uploads.total_uploads > 0 {
         rules.push(LintRule {
             id: "BABYLON-006".to_string(),
-            severity: LintSeverity::Medium,
-            title: "Per-Frame Dynamic texImage2D Texture Reallocations".to_string(),
-            impact: format!("{} calls to texImage2D per frame reallocate GPU storage.", analysis.uploads.total_uploads),
-            description: "texImage2D destroys and reallocates texture storage on the driver. If updating an 8x1 float texture every frame, use texSubImage2D or pass data via uniforms.".to_string(),
-            code_fix: r#"// Instead of dynamic texture reallocation, pass playback data via uniform:
-material.setColor4("playbackData", new BABYLON.Color4(v0, v1, v2, v3));
-// Or update existing texture without reallocation:
-gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, format, type, data);"#.to_string(),
+            severity: LintSeverity::Low,
+            title: "Dynamic texImage2D Texture Allocation Detected".to_string(),
+            impact: format!("[Observed Fact] {} calls to texImage2D observed during capture.", analysis.uploads.total_uploads),
+            description: "texImage2D allocates driver texture storage. For initial scene asset loading, this is expected behavior; if occurring continuously in runtime animation loops, texSubImage2D or uniform arrays should be preferred to avoid GPU reallocation overhead.".to_string(),
+            code_fix: r#"// For runtime updates without reallocation, use texSubImage2D:
+gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, format, type, data);
+// Or pass dynamic scalar/vector parameters via shader uniforms:
+material.setColor4("playbackData", new BABYLON.Color4(v0, v1, v2, v3));"#.to_string(),
         });
     }
 
@@ -162,11 +165,11 @@ gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, format, type, data);"#.t
     if analysis.buffers.index_32bit_draws > 0 {
         rules.push(LintRule {
             id: "BABYLON-007".to_string(),
-            severity: LintSeverity::Medium,
-            title: "Meshes with >65,535 Vertices Force 32-Bit Index Buffers".to_string(),
-            impact: format!("{} draw calls use UNSIGNED_INT, triggering VERTEX_PULLING_INDEX_BUFFER_32BITS shader variants.", analysis.buffers.index_32bit_draws),
-            description: "Meshes with >65k indices require 32-bit index buffers (UNSIGNED_INT), which doubles IBO bandwidth on mobile GPUs and forces Babylon.js to compile special shader variants.".to_string(),
-            code_fix: r#"// Subdivide meshes with >65k vertices in Babylon.js or 3D modeling tool:
+            severity: LintSeverity::Low,
+            title: "32-Bit Index Buffers (UNSIGNED_INT)".to_string(),
+            impact: format!("[Observed Fact] {} draw calls use 32-bit index buffers (UNSIGNED_INT).", analysis.buffers.index_32bit_draws),
+            description: "32-bit index buffers are fully supported across all modern WebGL 2 devices and browsers. Splitting meshes into <= 65,535 vertices to use 16-bit indices (UNSIGNED_SHORT) is an optional candidate for extreme memory and bandwidth optimization on entry-level mobile devices.".to_string(),
+            code_fix: r#"// Optional: Subdivide large meshes into <= 65k vertices for 16-bit indices:
 mesh.subdivide(Math.ceil(mesh.getTotalIndices() / 60000));"#.to_string(),
         });
     }
@@ -176,9 +179,9 @@ mesh.subdivide(Math.ceil(mesh.getTotalIndices() / 60000));"#.to_string(),
         rules.push(LintRule {
             id: "BABYLON-008".to_string(),
             severity: LintSeverity::Medium,
-            title: "Material Sorting Failure: Ping-Pong Shader Switching".to_string(),
-            impact: format!("{} ping-pong switches (A -> B -> A), causing {} redundant useProgram switches.", analysis.sorting.ping_pong_switches, analysis.sorting.redundant_switches),
-            description: "Draw calls are not grouped by material/shader. Sorting opaque draw calls by material ID allows the driver to keep the shader program and textures bound across multiple meshes.".to_string(),
+            title: "Material Sorting: Ping-Pong Shader Switching".to_string(),
+            impact: format!("[Calculated Estimate] {} ping-pong switches (A -> B -> A), causing up to {} reducible useProgram switches within phases.", analysis.sorting.ping_pong_switches, analysis.sorting.reducible_switches),
+            description: "Draw calls within render phases alternate between different shaders. Sorting opaque draw calls by material ID allows the driver to keep shader programs bound across multiple meshes.".to_string(),
             code_fix: r#"// Sort opaque meshes by material uniqueId to minimize shader switches:
 scene.setRenderingOrder(0, BABYLON.RenderingGroup.AUTOCLEAR, (a, b) => {
     return (a.material?.uniqueId || 0) - (b.material?.uniqueId || 0);
@@ -190,10 +193,10 @@ scene.setRenderingOrder(0, BABYLON.RenderingGroup.AUTOCLEAR, (a, b) => {
     if analysis.sorting.total_opaque_after_blended > 0 {
         rules.push(LintRule {
             id: "BABYLON-009".to_string(),
-            severity: LintSeverity::Medium,
-            title: "Opaque Meshes Drawn After Transparent Meshes".to_string(),
-            impact: format!("{} opaque draw calls executed after blend started, breaking Early-Z rejection.", analysis.sorting.total_opaque_after_blended),
-            description: "Opaque meshes should always render before transparent/blended meshes. Interleaving opaque draws after blending causes overdraw and forces extra depth/blend state toggles.".to_string(),
+            severity: LintSeverity::Low,
+            title: "Opaque Draws Executed After Blend Phase".to_string(),
+            impact: format!("[Hypothesis / Candidate] {} opaque draw calls were submitted after alpha-blended draws in the same pass.", analysis.sorting.total_opaque_after_blended),
+            description: "If these draw calls represent 2D UI elements, overlays, or depth-untested decals, this ordering is intentional. If they represent 3D scene geometry, moving them prior to the alpha-blend phase enables hardware Early-Z depth rejection.".to_string(),
             code_fix: r#"// Assign transparent meshes to a distinct rendering group:
 opaqueMesh.renderingGroupId = 0;      // Rendered first (Early-Z active)
 transparentMesh.renderingGroupId = 1; // Rendered second (Back-to-front)"#.to_string(),
@@ -205,11 +208,25 @@ transparentMesh.renderingGroupId = 1; // Rendered second (Back-to-front)"#.to_st
         rules.push(LintRule {
             id: "BABYLON-010".to_string(),
             severity: LintSeverity::Low,
-            title: "Redundant depthMask Calls Bypass ThinEngine State Cache".to_string(),
-            impact: format!("{} redundant depthMask() calls stall the WebGL pipeline.", capture.state_changes.redundant_depth_mask),
-            description: "Calling gl.depthMask() directly or toggling depth write without checking current state causes redundant driver calls. Use engine.setDepthWrite() to leverage Babylon.js state caching.".to_string(),
-            code_fix: r#"// Use Babylon.js engine state cache instead of raw WebGL calls:
-engine.setDepthWrite(false); // Only issues driver call if state changes"#.to_string(),
+            title: "Redundant depthMask State Calls".to_string(),
+            impact: format!("[Observed Fact] {} depthMask() calls repeated the currently active depth write state.", capture.state_changes.redundant_depth_mask),
+            description: "Calling gl.depthMask() with the existing state introduces redundant driver calls. When using custom multipass rendering or overlays, ensure state toggles leverage engine state caching.".to_string(),
+            code_fix: r#"// Leverage Babylon.js engine state cache instead of raw WebGL calls:
+engine.setDepthWrite(false); // Only issues driver call if state actually changes"#.to_string(),
+        });
+    }
+
+    // 11. NPOT Textures
+    if analysis.compression.npot_count > 0 {
+        rules.push(LintRule {
+            id: "BABYLON-011".to_string(),
+            severity: LintSeverity::Low,
+            title: "Non-Power-of-Two (NPOT) Textures".to_string(),
+            impact: format!("[Observed Fact] {} non-data textures have Non-Power-of-Two dimensions.", analysis.compression.npot_count),
+            description: "In WebGL 2, NPOT textures are fully compliant, supporting mipmapping and REPEAT/CLAMP_TO_EDGE wrap modes. If targeting WebGL 1 fallback, ensure textures use CLAMP_TO_EDGE and no mipmaps.".to_string(),
+            code_fix: r#"// For WebGL 1 fallback compatibility, configure CLAMP_TO_EDGE:
+texture.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+texture.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;"#.to_string(),
         });
     }
 
@@ -230,10 +247,10 @@ engine.setDepthWrite(false); // Only issues driver call if state changes"#.to_st
 
 pub fn format_lint_report(report: &LintReport) -> String {
     let mut out = String::new();
-    out.push_str("# Babylon.js Performance Lint Report\n\n");
+    out.push_str("# Babylon.js & WebGL Detected Patterns Audit\n\n");
 
     out.push_str(&format!(
-        "Summary: **{}** issues found (🔴 {} Critical, 🟠 {} High, 🟡 {} Medium, ℹ️ {} Low)\n\n",
+        "Summary: **{}** patterns identified (🔴 {} Critical, 🟠 {} High, 🟡 {} Medium, ℹ️ {} Low)\n\n",
         report.total_issues,
         report.critical_count,
         report.high_count,
@@ -241,15 +258,20 @@ pub fn format_lint_report(report: &LintReport) -> String {
         report.low_count
     ));
 
+    out.push_str("| Rule ID | Severity | Title | Detected Telemetry / Metric | Description |\n");
+    out.push_str("|---|---|---|---|---|\n");
     for r in &report.rules {
-        out.push_str(&format!("## {} [{}] {}\n\n", r.severity.emoji(), r.id, r.title));
-        out.push_str(&format!("- **Severity:** {}\n", r.severity.as_str()));
-        out.push_str(&format!("- **Impact:** {}\n", r.impact));
-        out.push_str(&format!("- **Description:** {}\n\n", r.description));
-        out.push_str("### Recommended Code Fix (TypeScript):\n\n```typescript\n");
-        out.push_str(&r.code_fix);
-        out.push_str("\n```\n\n---\n\n");
+        out.push_str(&format!(
+            "| `{}` | {} | {} | {} | {} |\n",
+            r.id,
+            r.severity.as_str(),
+            r.title,
+            r.impact,
+            r.description
+        ));
     }
+    out.push_str("\n");
 
     out
 }
+
