@@ -2,8 +2,11 @@ use crate::gl_enum;
 use crate::model::*;
 use memmap2::Mmap;
 use rustc_hash::{FxHashMap, FxHashSet};
+use serde::Deserialize;
+use serde_json::value::RawValue;
 use serde_json::Value;
 use std::fs::File;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
 
 #[derive(Default, Clone)]
@@ -26,21 +29,58 @@ pub fn parse_file<P: AsRef<Path>>(path: P) -> Result<ParsedCapture, Box<dyn std:
     if (mmap.len() >= 2 && mmap[0] == 0x1f && mmap[1] == 0x8b) || p.extension().and_then(|s| s.to_str()) == Some("gz") {
         use flate2::read::GzDecoder;
         use std::io::Read;
-        let mut decoder = GzDecoder::new(&mmap[..]);
-        let mut buf = Vec::new();
-        decoder.read_to_end(&mut buf)?;
+        let cap = if mmap.len() >= 4 && (mmap.len() as u64) < 4294967296 {
+            let n = mmap.len();
+            u32::from_le_bytes([mmap[n - 4], mmap[n - 3], mmap[n - 2], mmap[n - 1]]) as usize
+        } else {
+            0
+        };
+        let mut buf = Vec::with_capacity(cap);
+        {
+            let mut decoder = GzDecoder::new(&mmap[..]);
+            decoder.read_to_end(&mut buf)?;
+        }
+        drop(mmap);
         parse_slice(&buf)
     } else {
         parse_slice(&mmap)
     }
 }
 
+#[derive(Deserialize)]
+struct CaptureRoot<'a> {
+    #[serde(default)]
+    canvas: Option<Value>,
+    #[serde(default)]
+    context: Option<Value>,
+    #[serde(default)]
+    memory: Option<Value>,
+    #[serde(default, rename = "initState")]
+    init_state: Option<Value>,
+    #[serde(default)]
+    analyses: Option<Value>,
+    #[serde(default, rename = "endState")]
+    end_state: Option<Value>,
+    #[serde(default, rename = "endTime")]
+    end_time: Option<Value>,
+    #[serde(default, rename = "frameMemory")]
+    frame_memory: Option<Value>,
+    #[serde(default, rename = "startTime")]
+    start_time: Option<Value>,
+    #[serde(default, rename = "listenCommandsStartTime")]
+    listen_commands_start_time: Option<Value>,
+    #[serde(default, rename = "listenCommandsEndTime")]
+    listen_commands_end_time: Option<Value>,
+    #[serde(borrow, default)]
+    commands: Vec<&'a RawValue>,
+}
+
 pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Error>> {
-    let root: Value = serde_json::from_slice(slice)?;
+    let root: CaptureRoot = serde_json::from_slice(slice)?;
 
     // Canvas
     let mut canvas = CanvasInfo::default();
-    if let Some(c) = root.get("canvas") {
+    if let Some(c) = root.canvas.as_ref() {
         canvas.width = c.get("width").and_then(|v| v.as_u64()).map(|v| v as u32);
         canvas.height = c.get("height").and_then(|v| v.as_u64()).map(|v| v as u32);
         canvas.client_width = c.get("clientWidth").and_then(|v| v.as_u64()).map(|v| v as u32);
@@ -50,7 +90,7 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
 
     // Context
     let mut context = ContextInfo::default();
-    if let Some(ctx) = root.get("context") {
+    if let Some(ctx) = root.context.as_ref() {
         context.version = ctx.get("version").and_then(|v| v.as_u64()).map(|v| v as u32);
         if let Some(caps) = ctx.get("capabilities") {
             context.renderer = caps.get("RENDERER").and_then(|v| v.as_str()).map(|s| s.to_string());
@@ -68,9 +108,41 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
         }
     }
 
-    // 1. Collect all textures across the JSON
+    // 1. Collect textures from non-command root fields; per-command values collected in loop
     let mut raw_textures: FxHashMap<u32, RawTexData> = FxHashMap::default();
-    collect_textures(&root, &mut raw_textures);
+    if let Some(c) = root.canvas.as_ref() {
+        collect_textures(c, &mut raw_textures);
+    }
+    if let Some(c) = root.context.as_ref() {
+        collect_textures(c, &mut raw_textures);
+    }
+    if let Some(c) = root.init_state.as_ref() {
+        collect_textures(c, &mut raw_textures);
+    }
+    if let Some(c) = root.memory.as_ref() {
+        collect_textures(c, &mut raw_textures);
+    }
+    if let Some(c) = root.analyses.as_ref() {
+        collect_textures(c, &mut raw_textures);
+    }
+    if let Some(c) = root.end_state.as_ref() {
+        collect_textures(c, &mut raw_textures);
+    }
+    if let Some(c) = root.end_time.as_ref() {
+        collect_textures(c, &mut raw_textures);
+    }
+    if let Some(c) = root.frame_memory.as_ref() {
+        collect_textures(c, &mut raw_textures);
+    }
+    if let Some(c) = root.start_time.as_ref() {
+        collect_textures(c, &mut raw_textures);
+    }
+    if let Some(c) = root.listen_commands_start_time.as_ref() {
+        collect_textures(c, &mut raw_textures);
+    }
+    if let Some(c) = root.listen_commands_end_time.as_ref() {
+        collect_textures(c, &mut raw_textures);
+    }
 
     // 2. Iterate commands and reconstruct WebGL state
     let mut summary = FrameCaptureSummary::default();
@@ -79,11 +151,12 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
     let mut uploads = Vec::new();
     let mut buffer_uploads = Vec::new();
     let mut uniform_commands = Vec::new();
-    let mut current_uniform_values: FxHashMap<(u32, u32), String> = FxHashMap::default();
-    let mut seen_buffer_samples: FxHashSet<String> = FxHashSet::default();
+    let mut current_uniform_values: FxHashMap<(u32, u32), u64> = FxHashMap::default();
+    let mut seen_buffer_samples: FxHashSet<u64> = FxHashSet::default();
+    let mut val_buf = String::new();
     let mut passes = Vec::new();
 
-    let init_state = root.get("initState");
+    let init_state = root.init_state.as_ref();
     let drawing_buffer = (canvas.width.unwrap_or(0), canvas.height.unwrap_or(0));
 
     let mut current_viewport = Rect {
@@ -169,13 +242,14 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
         vram_bytes: (current_viewport.width as usize) * (current_viewport.height as usize) * 8,
     };
 
-    let empty_vec = Vec::new();
-    let commands = root.get("commands").and_then(|c| c.as_array()).unwrap_or(&empty_vec);
-    summary.total_commands = commands.len();
+    summary.total_commands = root.commands.len();
 
     let mut particle_systems: Vec<ParticleSystemItem> = Vec::new();
 
-    for (cmd_idx, cmd) in commands.iter().enumerate() {
+    for (cmd_idx, raw) in root.commands.iter().enumerate() {
+        let cmd_owned: Value = serde_json::from_str(raw.get())?;
+        collect_textures(&cmd_owned, &mut raw_textures);
+        let cmd = &cmd_owned;
         let name = cmd.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let text = cmd.get("text").and_then(|v| v.as_str()).unwrap_or("");
         let args = cmd.get("commandArguments").and_then(|v| v.as_array());
@@ -472,11 +546,15 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
                     }
                 }
 
-                let sample_key = format!("{}:{}:{}", target, offset, sample_str.as_deref().unwrap_or(""));
+                let sample_key = {
+                    let mut h = rustc_hash::FxHasher::default();
+                    target.hash(&mut h);
+                    offset.hash(&mut h);
+                    sample_str.as_deref().unwrap_or("").hash(&mut h);
+                    h.finish()
+                };
                 let is_duplicate = seen_buffer_samples.contains(&sample_key);
-                if !sample_key.is_empty() {
-                    seen_buffer_samples.insert(sample_key);
-                }
+                seen_buffer_samples.insert(sample_key);
                 if is_duplicate {
                     summary.duplicate_buffer_uploads += 1;
                 }
@@ -497,7 +575,6 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
                 summary.uniform_calls += 1;
                 let mut loc_id: Option<u32> = None;
                 let mut is_redundant = false;
-                let mut val_str = String::new();
                 let mut bytes = 4;
 
                 if name.contains("Matrix4") {
@@ -518,21 +595,30 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
                     if let Some(first) = args.first() {
                         loc_id = extract_spektor_id(first);
                     }
+                    val_buf.clear();
                     if args.len() >= 2 {
-                        val_str = args[1].to_string();
+                        use std::fmt::Write as _;
+                        let _ = write!(val_buf, "{}", args[1]);
                     }
+                } else {
+                    val_buf.clear();
                 }
+                let fp = {
+                    let mut h = rustc_hash::FxHasher::default();
+                    val_buf.as_bytes().hash(&mut h);
+                    h.finish()
+                };
 
                 if let (Some(pid), Some(lid)) = (current_program_id, loc_id) {
                     let ukey = (pid, lid);
                     if let Some(prev) = current_uniform_values.get(&ukey) {
-                        if prev == &val_str {
+                        if *prev == fp {
                             is_redundant = true;
                             summary.redundant_uniform_calls += 1;
                             summary.redundant_uniform_bytes += bytes;
                         }
                     }
-                    current_uniform_values.insert(ukey, val_str);
+                    current_uniform_values.insert(ukey, fp);
                 }
                 summary.uniform_bytes += bytes;
 
@@ -962,7 +1048,7 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
         + state_changes.redundant_use_program;
 
     let mut memory_summary = MemorySummary::default();
-    if let Some(mem) = root.get("memory") {
+    if let Some(mem) = root.memory.as_ref() {
         if let Some(buf_obj) = mem.get("Buffer").and_then(|v| v.as_object()) {
             let max_val = buf_obj.values().filter_map(|v| v.as_u64()).max().unwrap_or(0);
             memory_summary.buffer_memory_bytes = max_val as usize;
