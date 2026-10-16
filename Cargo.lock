@@ -130,6 +130,7 @@ dependencies = [
  "clap",
  "gprof-core",
  "mimalloc",
+ "serde",
  "serde_json",
 ]
 
