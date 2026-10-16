@@ -11,3 +11,4 @@ serde_json = { workspace = true }
 rustc-hash = { workspace = true }
 memmap2 = { workspace = true }
 flate2 = { workspace = true }
+memchr = { workspace = true }

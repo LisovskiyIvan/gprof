@@ -184,12 +184,20 @@ pub(super) fn compile_textures(
         let is_compressed = comp_status == CompressionStatus::Compressed;
 
         let format_display = if raw.format == 0 {
-            if is_compressed { "—".to_string() } else { "UNKNOWN".to_string() }
+            if is_compressed {
+                "—".to_string()
+            } else {
+                "UNKNOWN".to_string()
+            }
         } else {
             gl_enum::format_name(raw.format).to_string()
         };
         let type_display = if raw.r#type == 0 {
-            if is_compressed { "—".to_string() } else { "UNKNOWN".to_string() }
+            if is_compressed {
+                "—".to_string()
+            } else {
+                "UNKNOWN".to_string()
+            }
         } else {
             gl_enum::type_name(raw.r#type).to_string()
         };
@@ -221,15 +229,18 @@ pub(super) fn compile_textures(
     (textures, total_texture_bytes)
 }
 
-pub(super) fn compile_programs(
-    program_draw_counts: FxHashMap<u32, usize>,
-    mut program_shaders: FxHashMap<u32, (String, Vec<String>)>,
-) -> Vec<ProgramItem> {
+pub(super) fn compile_programs(program_draw_counts: FxHashMap<u32, usize>, mut program_shaders: FxHashMap<u32, (String, Vec<String>)>) -> Vec<ProgramItem> {
     let mut programs = Vec::with_capacity(program_draw_counts.len());
     for (pid, cnt) in program_draw_counts {
         let (sname, defs) = program_shaders.remove(&pid).unwrap_or_else(|| ("unknown".to_string(), Vec::new()));
         let is_pbr = sname.contains("pbr");
-        programs.push(ProgramItem { id: pid, draw_count: cnt, shader_name: sname, defines: defs, is_pbr });
+        programs.push(ProgramItem {
+            id: pid,
+            draw_count: cnt,
+            shader_name: sname,
+            defines: defs,
+            is_pbr,
+        });
     }
     programs.sort_by_key(|a| std::cmp::Reverse(a.draw_count));
     programs

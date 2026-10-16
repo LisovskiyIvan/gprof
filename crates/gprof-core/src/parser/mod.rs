@@ -1,6 +1,8 @@
+mod cmd;
 mod helpers;
 
-use helpers::{collect_textures, classify_pass, compile_programs, compile_textures, extract_spektor_id, RawTexData};
+use cmd::Cmd;
+use helpers::{classify_pass, collect_textures, compile_programs, compile_textures, extract_spektor_id, RawTexData};
 
 use crate::gl_enum;
 use crate::model::*;
@@ -12,7 +14,6 @@ use serde_json::Value;
 use std::fs::File;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
-
 
 pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Error>> {
     let root: CaptureRoot = serde_json::from_slice(slice)?;
@@ -233,12 +234,11 @@ fn build_capture<'a>(mut root: CaptureRoot<'a>) -> Result<ParsedCapture, Box<dyn
     let mut particle_systems: Vec<ParticleSystemItem> = Vec::new();
 
     for (cmd_idx, raw) in commands.into_iter().enumerate() {
-        let cmd_owned: Value = serde_json::from_str(raw.get())?;
-        collect_textures(&cmd_owned, &mut raw_textures);
-        let cmd = &cmd_owned;
-        let name = cmd.get("name").and_then(|v| v.as_str()).unwrap_or("");
-        let text = cmd.get("text").and_then(|v| v.as_str()).unwrap_or("");
-        let args = cmd.get("commandArguments").and_then(|v| v.as_array());
+        let cmd = serde_json::from_str::<Cmd<'_>>(raw.get())?;
+        cmd.collect_textures(&mut raw_textures);
+        let name = cmd.name;
+        let text = cmd.text.as_deref().unwrap_or("");
+        let args = cmd.command_arguments.as_deref();
 
         match name {
             "depthMask" => {
@@ -458,14 +458,7 @@ fn build_capture<'a>(mut root: CaptureRoot<'a>) -> Result<ParsedCapture, Box<dyn
                 let format = args.and_then(|a| a.get(6)).and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                 let r#type = args.and_then(|a| a.get(7)).and_then(|v| v.as_u64()).unwrap_or(0) as u32;
 
-                let mut stack_trace = Vec::new();
-                if let Some(st) = cmd.get("stackTrace").and_then(|v| v.as_array()) {
-                    for line in st {
-                        if let Some(s) = line.as_str() {
-                            stack_trace.push(s.to_string());
-                        }
-                    }
-                }
+                let stack_trace = cmd.stack_trace();
 
                 uploads.push(DynamicUploadItem {
                     command_index: cmd_idx,
@@ -516,14 +509,7 @@ fn build_capture<'a>(mut root: CaptureRoot<'a>) -> Result<ParsedCapture, Box<dyn
                     }
                 }
 
-                let mut stack_trace = Vec::new();
-                if let Some(st) = cmd.get("stackTrace").and_then(|v| v.as_array()) {
-                    for line in st {
-                        if let Some(s) = line.as_str() {
-                            stack_trace.push(s.to_string());
-                        }
-                    }
-                }
+                let stack_trace = cmd.stack_trace();
 
                 let sample_key = {
                     let mut h = rustc_hash::FxHasher::default();
@@ -599,12 +585,7 @@ fn build_capture<'a>(mut root: CaptureRoot<'a>) -> Result<ParsedCapture, Box<dyn
                 }
                 summary.uniform_bytes += bytes;
 
-                let stack_caller = cmd
-                    .get("stackTrace")
-                    .and_then(|st| st.as_array())
-                    .and_then(|arr| arr.first())
-                    .and_then(|s| s.as_str())
-                    .map(|s| s.to_string());
+                let stack_caller = cmd.stack_trace.as_ref().and_then(|arr| arr.first().map(|s| s.to_string()));
 
                 uniform_commands.push(UniformCommandItem {
                     command_index: cmd_idx,
@@ -622,7 +603,7 @@ fn build_capture<'a>(mut root: CaptureRoot<'a>) -> Result<ParsedCapture, Box<dyn
         let is_draw = name.starts_with("draw");
         if is_draw {
             summary.draw_calls += 1;
-            let dc = cmd.get("DrawCall");
+            let dc = cmd.draw_call.as_ref();
 
             // Extract mode and counts
             let mut mode = 4; // TRIANGLES default
@@ -704,8 +685,8 @@ fn build_capture<'a>(mut root: CaptureRoot<'a>) -> Result<ParsedCapture, Box<dyn
             let mut shader_name = "unknown".to_string();
             let mut defines = Vec::new();
             if let Some(dc_obj) = dc {
-                if let Some(shaders) = dc_obj.get("shaders").and_then(|v| v.as_array()) {
-                    if let Some(vs) = shaders.first().and_then(|s| s.get("source")).and_then(|s| s.as_str()) {
+                if let Some(shaders) = &dc_obj.shaders {
+                    if let Some(vs) = shaders.first().and_then(|s| s.source.as_deref()) {
                         for line in vs.lines() {
                             if line.contains("#define SHADER_NAME") {
                                 shader_name = line.replace("#define SHADER_NAME", "").trim().to_string();
@@ -738,16 +719,16 @@ fn build_capture<'a>(mut root: CaptureRoot<'a>) -> Result<ParsedCapture, Box<dyn
             let mut uniform_count = 0;
             let mut samplers = Vec::new();
             if let Some(dc_obj) = dc {
-                if let Some(uniforms) = dc_obj.get("uniforms").and_then(|u| u.as_array()) {
+                if let Some(uniforms) = &dc_obj.uniforms {
                     uniform_count = uniforms.len();
                     for u in uniforms {
-                        let uname = u.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                        let utype = u.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                        let uname = u.name.unwrap_or("");
+                        let utype = u.utype.unwrap_or("");
                         if utype.contains("SAMPLER") {
                             samplers.push(uname.to_string());
                         }
                         if uname == "glowColor" {
-                            if let Some(arr) = u.get("value").and_then(|v| v.as_array()) {
+                            if let Some(arr) = u.value.as_ref().and_then(|v| v.as_array()) {
                                 if arr.len() >= 3 {
                                     let r = arr[0].as_f64().unwrap_or(0.0) as f32;
                                     let g = arr[1].as_f64().unwrap_or(0.0) as f32;
@@ -757,7 +738,7 @@ fn build_capture<'a>(mut root: CaptureRoot<'a>) -> Result<ParsedCapture, Box<dyn
                                 }
                             }
                         } else if uname == "world" {
-                            if let Some(arr) = u.get("value").and_then(|v| v.as_array()) {
+                            if let Some(arr) = u.value.as_ref().and_then(|v| v.as_array()) {
                                 if arr.len() >= 16 {
                                     let x = arr[12].as_f64().unwrap_or(0.0) as f32;
                                     let y = arr[13].as_f64().unwrap_or(0.0) as f32;
@@ -767,12 +748,12 @@ fn build_capture<'a>(mut root: CaptureRoot<'a>) -> Result<ParsedCapture, Box<dyn
                             }
                         }
 
-                        if uname.to_lowercase().contains("emissive") && u.get("value").map(|v| v.is_object()).unwrap_or(false) {
+                        if uname.to_lowercase().contains("emissive") && u.value.as_ref().map(|v| v.is_object()).unwrap_or(false) {
                             has_emissive_tex = true;
                         }
 
                         // Check samplers mapping to texture units
-                        if let Some(val) = u.get("value") {
+                        if let Some(val) = &u.value {
                             if let Some(unit_idx) = val.as_u64() {
                                 if let Some(&tid) = bound_textures.get(&(unit_idx as u32)) {
                                     *tex_draw_counts.entry(tid).or_default() += 1;
@@ -806,10 +787,10 @@ fn build_capture<'a>(mut root: CaptureRoot<'a>) -> Result<ParsedCapture, Box<dyn
             let mut vertex_buffer_bytes = 0;
             let mut vertex_count_estimate = 0;
             if let Some(dc_obj) = dc {
-                if let Some(attrs) = dc_obj.get("attributes").and_then(|a| a.as_array()) {
+                if let Some(attrs) = &dc_obj.attributes {
                     for attr in attrs {
-                        let name = attr.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                        let blen = attr.get("bufferLength").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                        let name = attr.name.unwrap_or("");
+                        let blen = attr.buffer_length.as_ref().and_then(|v| v.as_u64()).unwrap_or(0) as usize;
                         if name == "position" {
                             vertex_buffer_bytes = blen;
                             vertex_count_estimate = blen / 12; // 3 floats = 12 bytes
@@ -837,23 +818,21 @@ fn build_capture<'a>(mut root: CaptureRoot<'a>) -> Result<ParsedCapture, Box<dyn
                 }
             }
 
-            let stack_component = cmd.get("stackTrace").and_then(|st| st.as_array()).and_then(|arr| {
-                for frame in arr {
-                    if let Some(f) = frame.as_str() {
-                        if f.contains("ThinGlowLayer") {
-                            return Some("ThinGlowLayer".to_string());
-                        } else if f.contains("Mesh._") || f.contains("Mesh.") {
-                            return Some("Mesh".to_string());
-                        } else if f.contains("Particle") {
-                            return Some("ParticleSystem".to_string());
-                        } else if f.contains("Procedural") {
-                            return Some("ProceduralTexture".to_string());
-                        } else if f.contains("Scene.") {
-                            return Some("Scene".to_string());
-                        }
+            let stack_component = cmd.stack_trace.as_ref().and_then(|arr| {
+                for f in arr {
+                    if f.contains("ThinGlowLayer") {
+                        return Some("ThinGlowLayer".to_string());
+                    } else if f.contains("Mesh._") || f.contains("Mesh.") {
+                        return Some("Mesh".to_string());
+                    } else if f.contains("Particle") {
+                        return Some("ParticleSystem".to_string());
+                    } else if f.contains("Procedural") {
+                        return Some("ProceduralTexture".to_string());
+                    } else if f.contains("Scene.") {
+                        return Some("Scene".to_string());
                     }
                 }
-                arr.first().and_then(|s| s.as_str()).map(|s| s.split('(').next().unwrap_or(s).trim().to_string())
+                arr.first().map(|s| s.split('(').next().unwrap_or(s).trim().to_string())
             });
 
             let draw_item = DrawCallItem {
@@ -975,4 +954,3 @@ fn build_capture<'a>(mut root: CaptureRoot<'a>) -> Result<ParsedCapture, Box<dyn
         uniform_commands,
     })
 }
-

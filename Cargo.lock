@@ -139,6 +139,7 @@ name = "gprof-core"
 version = "0.1.0"
 dependencies = [
  "flate2",
+ "memchr",
  "memmap2",
  "rustc-hash",
  "serde",
