@@ -18,9 +18,7 @@ pub fn analyze_particles(particles: &[ParticleSystemItem]) -> ParticlesAnalysisR
     let warning = if total_particles > 50_000 {
         Some(format!(
             "HEAVY PARTICLE LOAD: {} active GPU particles across {} systems ({} billboard triangles/frame). Large additive particle counts cause severe fill-rate drops and overdraw.",
-            total_particles,
-            systems_count,
-            total_quad_triangles
+            total_particles, systems_count, total_quad_triangles
         ))
     } else {
         None

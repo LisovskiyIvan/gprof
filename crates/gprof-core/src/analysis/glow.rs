@@ -36,22 +36,22 @@ pub fn audit_glow_layer(draws: &[DrawCallItem]) -> GlowAuditResult {
     let active_draws = total_draws.saturating_sub(black_draws);
     let active_triangles = total_triangles.saturating_sub(black_triangles);
 
-    let occluder_pct = if total_triangles > 0 {
-        (black_triangles as f64 / total_triangles as f64) * 100.0
-    } else {
-        0.0
-    };
+    let occluder_pct = if total_triangles > 0 { (black_triangles as f64 / total_triangles as f64) * 100.0 } else { 0.0 };
 
     let mut occluders_sorted = black_occluders.clone();
-    occluders_sorted.sort_by(|a, b| b.triangles.cmp(&a.triangles));
+    occluders_sorted.sort_by_key(|a| std::cmp::Reverse(a.triangles));
 
-    let top_occluders = occluders_sorted.into_iter().take(15).map(|d| GlowOccluderMesh {
-        draw_index: d.index,
-        command_id: d.command_id,
-        triangles: d.triangles,
-        world_position: d.world_position,
-        vertex_buffer_bytes: d.vertex_buffer_bytes,
-    }).collect();
+    let top_occluders = occluders_sorted
+        .into_iter()
+        .take(15)
+        .map(|d| GlowOccluderMesh {
+            draw_index: d.index,
+            command_id: d.command_id,
+            triangles: d.triangles,
+            world_position: d.world_position,
+            vertex_buffer_bytes: d.vertex_buffer_bytes,
+        })
+        .collect();
 
     let rec = if black_draws > 0 {
         format!(
@@ -78,4 +78,3 @@ pub fn audit_glow_layer(draws: &[DrawCallItem]) -> GlowAuditResult {
         recommendation: rec,
     }
 }
-

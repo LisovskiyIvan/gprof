@@ -90,9 +90,7 @@ pub fn analyze_scene_tree(capture: &ParsedCapture) -> SceneTreeAnalysisResult {
     }
 
     let mut nodes = Vec::new();
-    let mut node_counter = 1;
-
-    for (key, draw_indices) in groups {
+    for (node_counter, (key, draw_indices)) in (1..).zip(groups) {
         let mut total_triangles = 0;
         let mut max_vram = 0;
         let mut shaders = Vec::new();
@@ -149,18 +147,9 @@ pub fn analyze_scene_tree(capture: &ParsedCapture) -> SceneTreeAnalysisResult {
 
         // Determine name and category (explicitly marked as Heuristic)
         let (category, name) = match key {
-            NodeKey::Particles => (
-                "[Heuristic] GPU Particle System".to_string(),
-                format!("[Heuristic] Particle Emitters (Draws: {})", draws_preview),
-            ),
-            NodeKey::LayerUI => (
-                "[Heuristic] UI / 2D Layer".to_string(),
-                format!("[Heuristic] Screen Space UI Layer (Draws: {})", draws_preview),
-            ),
-            NodeKey::PostProcess(ref sname) => (
-                "[Heuristic] Post-Process Effect".to_string(),
-                format!("[Heuristic] {} Quad (Draws: {})", sname, draws_preview),
-            ),
+            NodeKey::Particles => ("[Heuristic] GPU Particle System".to_string(), format!("[Heuristic] Particle Emitters (Draws: {})", draws_preview)),
+            NodeKey::LayerUI => ("[Heuristic] UI / 2D Layer".to_string(), format!("[Heuristic] Screen Space UI Layer (Draws: {})", draws_preview)),
+            NodeKey::PostProcess(ref sname) => ("[Heuristic] Post-Process Effect".to_string(), format!("[Heuristic] {} Quad (Draws: {})", sname, draws_preview)),
             NodeKey::Instanced(bytes) => (
                 "[Heuristic] Instanced Mesh Group".to_string(),
                 format!("[Heuristic] Instanced Group ({:.1} KB buffer, Draws: {})", bytes as f64 / 1024.0, draws_preview),
@@ -196,10 +185,7 @@ pub fn analyze_scene_tree(capture: &ParsedCapture) -> SceneTreeAnalysisResult {
                     )
                 }
             }
-            NodeKey::Generic(ref sname) => (
-                "[Heuristic] Scene Geometry".to_string(),
-                format!("[Heuristic] Submesh [{}] (Draws: {})", sname, draws_preview),
-            ),
+            NodeKey::Generic(ref sname) => ("[Heuristic] Scene Geometry".to_string(), format!("[Heuristic] Submesh [{}] (Draws: {})", sname, draws_preview)),
         };
 
         nodes.push(SceneNodeItem {
@@ -220,8 +206,6 @@ pub fn analyze_scene_tree(capture: &ParsedCapture) -> SceneTreeAnalysisResult {
             instance_count: max_instances,
             uses_32bit_index,
         });
-
-        node_counter += 1;
     }
 
     nodes.sort_by(|a, b| b.total_triangles.cmp(&a.total_triangles).then_with(|| b.draw_count.cmp(&a.draw_count)));
@@ -244,7 +228,7 @@ pub fn analyze_scene_tree(capture: &ParsedCapture) -> SceneTreeAnalysisResult {
             triangle_count,
         })
         .collect();
-    categories_summary.sort_by(|a, b| b.triangle_count.cmp(&a.triangle_count));
+    categories_summary.sort_by_key(|a| std::cmp::Reverse(a.triangle_count));
 
     SceneTreeAnalysisResult {
         total_nodes: nodes.len(),
@@ -252,4 +236,3 @@ pub fn analyze_scene_tree(capture: &ParsedCapture) -> SceneTreeAnalysisResult {
         categories_summary,
     }
 }
-

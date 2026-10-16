@@ -142,11 +142,7 @@ pub fn analyze_overdraw(capture: &ParsedCapture) -> OverdrawAnalysisResult {
         let quad_multiplier = quad_draws as f64 * 1.0;
         // 2. Geometry: opaque base ~1.0x with Early-Z + blended additions
         let opaque_geo_draws = opaque_draws.saturating_sub(quad_draws);
-        let opaque_coverage = if opaque_geo_draws > 0 {
-            1.0 + (pass_early_z_broken as f64 * 0.05).min(2.0)
-        } else {
-            0.0
-        };
+        let opaque_coverage = if opaque_geo_draws > 0 { 1.0 + (pass_early_z_broken as f64 * 0.05).min(2.0) } else { 0.0 };
         let blended_coverage = (blended_draws as f64 * 0.15).min(4.0);
         let geometry_multiplier = opaque_coverage + blended_coverage;
 
@@ -265,4 +261,3 @@ pub fn analyze_overdraw(capture: &ParsedCapture) -> OverdrawAnalysisResult {
         recommendations,
     }
 }
-

@@ -42,17 +42,53 @@ pub fn compare_captures(before: &ParsedCapture, after: &ParsedCapture) -> Compar
     add_metric(&mut metrics, "Draw Calls", before.summary.draw_calls, after.summary.draw_calls, "calls");
     add_metric(&mut metrics, "Triangles", before.summary.triangles, after.summary.triangles, "tris");
     add_metric(&mut metrics, "Points / Particles", before.summary.points, after.summary.points, "points");
-    add_metric(&mut metrics, "Texture Memory", before.summary.total_texture_bytes / (1024 * 1024), after.summary.total_texture_bytes / (1024 * 1024), "MB");
+    add_metric(
+        &mut metrics,
+        "Texture Memory",
+        before.summary.total_texture_bytes / (1024 * 1024),
+        after.summary.total_texture_bytes / (1024 * 1024),
+        "MB",
+    );
     add_metric(&mut metrics, "Glow Total Draws", before.summary.glow_total_draws, after.summary.glow_total_draws, "draws");
     add_metric(&mut metrics, "Glow Black Occluder Draws", before.summary.glow_black_draws, after.summary.glow_black_draws, "draws");
     add_metric(&mut metrics, "Glow Occluder Triangles", before.summary.glow_black_triangles, after.summary.glow_black_triangles, "tris");
     add_metric(&mut metrics, "Programs Used", before.summary.unique_programs, after.summary.unique_programs, "programs");
-    add_metric(&mut metrics, "Program Switches (useProgram)", before.summary.use_program_calls, after.summary.use_program_calls, "switches");
-    add_metric(&mut metrics, "Redundant State Calls", before.state_changes.total_redundant_calls, after.state_changes.total_redundant_calls, "calls");
+    add_metric(
+        &mut metrics,
+        "Program Switches (useProgram)",
+        before.summary.use_program_calls,
+        after.summary.use_program_calls,
+        "switches",
+    );
+    add_metric(
+        &mut metrics,
+        "Redundant State Calls",
+        before.state_changes.total_redundant_calls,
+        after.state_changes.total_redundant_calls,
+        "calls",
+    );
     add_metric(&mut metrics, "32-Bit Index Mesh Draws", before.summary.index_32bit_draws, after.summary.index_32bit_draws, "draws");
-    add_metric(&mut metrics, "Dynamic Texture Uploads (texImage2D)", before.summary.dynamic_uploads_count, after.summary.dynamic_uploads_count, "uploads");
-    add_metric(&mut metrics, "Dynamic Buffer Uploads (bufferSubData)", before.summary.buffer_subdata_calls, after.summary.buffer_subdata_calls, "uploads");
-    add_metric(&mut metrics, "Duplicate Buffer Uploads", before.summary.duplicate_buffer_uploads, after.summary.duplicate_buffer_uploads, "uploads");
+    add_metric(
+        &mut metrics,
+        "Dynamic Texture Uploads (texImage2D)",
+        before.summary.dynamic_uploads_count,
+        after.summary.dynamic_uploads_count,
+        "uploads",
+    );
+    add_metric(
+        &mut metrics,
+        "Dynamic Buffer Uploads (bufferSubData)",
+        before.summary.buffer_subdata_calls,
+        after.summary.buffer_subdata_calls,
+        "uploads",
+    );
+    add_metric(
+        &mut metrics,
+        "Duplicate Buffer Uploads",
+        before.summary.duplicate_buffer_uploads,
+        after.summary.duplicate_buffer_uploads,
+        "uploads",
+    );
 
     let vram_delta = after.summary.total_texture_bytes as i64 - before.summary.total_texture_bytes as i64;
     let glow_saved = before.summary.glow_black_triangles.saturating_sub(after.summary.glow_black_triangles);
@@ -84,11 +120,15 @@ pub fn format_compare_markdown(before: &ParsedCapture, after: &ParsedCapture, re
         let pct_str = format!("{}{:.1}%", sign, m.pct_change);
         out.push_str(&format!("| **{}** | {} | {} | **{}** | **{}** |\n", m.name, b_str, a_str, d_str, pct_str));
     }
-    out.push_str("\n");
+    out.push('\n');
 
     out.push_str("## Key Observations\n\n");
     if res.glow_triangles_saved > 0 {
-        out.push_str(&format!("- 🟢 **GlowLayer Occluders:** Saved **{}** triangles ({:.1}%) of wasted occluder geometry.\n", format_num(res.glow_triangles_saved), (res.glow_triangles_saved as f64 / before.summary.glow_total_triangles as f64) * 100.0));
+        out.push_str(&format!(
+            "- 🟢 **GlowLayer Occluders:** Saved **{}** triangles ({:.1}%) of wasted occluder geometry.\n",
+            format_num(res.glow_triangles_saved),
+            (res.glow_triangles_saved as f64 / before.summary.glow_total_triangles as f64) * 100.0
+        ));
     }
     if res.vram_delta_bytes < 0 {
         out.push_str(&format!("- 🟢 **Texture Memory:** Freed **{}** of VRAM.\n", format_bytes(res.vram_delta_bytes.unsigned_abs() as usize)));
@@ -101,7 +141,7 @@ pub fn format_compare_markdown(before: &ParsedCapture, after: &ParsedCapture, re
     } else if dc_delta > 0 {
         out.push_str(&format!("- 🔴 **Draw Calls:** Increased by **{}** draw calls.\n", dc_delta));
     }
-    out.push_str("\n");
+    out.push('\n');
 
     out
 }

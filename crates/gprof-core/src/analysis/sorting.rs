@@ -122,11 +122,7 @@ pub fn analyze_sorting(capture: &ParsedCapture) -> SortingAnalysis {
             }
         }
 
-        let efficiency = if count > 1 {
-            ((count.saturating_sub(reducible)) as f64 / count as f64) * 100.0
-        } else {
-            100.0
-        };
+        let efficiency = if count > 1 { ((count.saturating_sub(reducible)) as f64 / count as f64) * 100.0 } else { 100.0 };
 
         let opaque_after_blend = slice.iter().filter(|d| seen_blended && !d.blend_enabled).count();
 
@@ -189,4 +185,3 @@ pub fn analyze_sorting(capture: &ParsedCapture) -> SortingAnalysis {
         warnings,
     }
 }
-

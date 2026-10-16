@@ -80,4 +80,3 @@ pub fn analyze_instancing(draws: &[DrawCallItem]) -> InstancingAnalysisResult {
         recommendation: rec,
     }
 }
-

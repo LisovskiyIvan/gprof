@@ -51,11 +51,7 @@ pub struct DrawUniformStat {
 pub fn analyze_uniforms(capture: &ParsedCapture) -> UniformStats {
     let total_calls = capture.summary.uniform_calls;
     let redundant_calls = capture.summary.redundant_uniform_calls;
-    let redundancy_pct = if total_calls > 0 {
-        (redundant_calls as f64 / total_calls as f64) * 100.0
-    } else {
-        0.0
-    };
+    let redundancy_pct = if total_calls > 0 { (redundant_calls as f64 / total_calls as f64) * 100.0 } else { 0.0 };
 
     let total_bytes = capture.summary.uniform_bytes;
     let redundant_bytes = capture.summary.redundant_uniform_bytes;
@@ -83,10 +79,7 @@ pub fn analyze_uniforms(capture: &ParsedCapture) -> UniformStats {
             entry.3 += u.bytes;
         }
 
-        let caller = u
-            .stack_caller
-            .clone()
-            .unwrap_or_else(|| "Unknown Call Site".to_string());
+        let caller = u.stack_caller.clone().unwrap_or_else(|| "Unknown Call Site".to_string());
         let c_entry = caller_map.entry(caller).or_insert((0, 0));
         c_entry.0 += 1;
         if u.is_redundant {
@@ -97,11 +90,7 @@ pub fn analyze_uniforms(capture: &ParsedCapture) -> UniformStats {
     let mut redundant_by_type: Vec<UniformTypeStat> = by_type_map
         .into_iter()
         .map(|(type_name, (total, redundant, bytes, redundant_bytes))| {
-            let red_pct = if total > 0 {
-                (redundant as f64 / total as f64) * 100.0
-            } else {
-                0.0
-            };
+            let red_pct = if total > 0 { (redundant as f64 / total as f64) * 100.0 } else { 0.0 };
             UniformTypeStat {
                 type_name,
                 total,
@@ -117,11 +106,7 @@ pub fn analyze_uniforms(capture: &ParsedCapture) -> UniformStats {
     let mut top_redundant_callers: Vec<UniformCallerStat> = caller_map
         .into_iter()
         .map(|(caller, (total_calls, redundant_calls))| {
-            let red_pct = if total_calls > 0 {
-                (redundant_calls as f64 / total_calls as f64) * 100.0
-            } else {
-                0.0
-            };
+            let red_pct = if total_calls > 0 { (redundant_calls as f64 / total_calls as f64) * 100.0 } else { 0.0 };
             UniformCallerStat {
                 caller,
                 total_calls,
@@ -131,7 +116,7 @@ pub fn analyze_uniforms(capture: &ParsedCapture) -> UniformStats {
         })
         .filter(|c| c.redundant_calls > 0)
         .collect();
-    top_redundant_callers.sort_by(|a, b| b.redundant_calls.cmp(&a.redundant_calls));
+    top_redundant_callers.sort_by_key(|a| std::cmp::Reverse(a.redundant_calls));
 
     // Draw uniforms stats: count declared active uniform variables on the shader for that draw
     let mut total_draw_uniforms = 0;
@@ -158,15 +143,11 @@ pub fn analyze_uniforms(capture: &ParsedCapture) -> UniformStats {
         0.0
     };
 
-    let avg_api_calls_per_draw = if !capture.draws.is_empty() {
-        total_calls as f64 / capture.draws.len() as f64
-    } else {
-        0.0
-    };
+    let avg_api_calls_per_draw = if !capture.draws.is_empty() { total_calls as f64 / capture.draws.len() as f64 } else { 0.0 };
 
     let avg_uniforms_per_draw = avg_active_uniforms_per_draw;
 
-    heaviest_uniform_draws.sort_by(|a, b| b.uniform_count.cmp(&a.uniform_count));
+    heaviest_uniform_draws.sort_by_key(|a| std::cmp::Reverse(a.uniform_count));
     heaviest_uniform_draws.truncate(15);
 
     // Generate actionable recommendations
@@ -217,4 +198,3 @@ pub fn analyze_uniforms(capture: &ParsedCapture) -> UniformStats {
         recommendations,
     }
 }
-

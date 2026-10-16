@@ -21,6 +21,11 @@ struct RawTexData {
     target: String,
 }
 
+pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Error>> {
+    let root: CaptureRoot = serde_json::from_slice(slice)?;
+    build_capture(root)
+}
+
 pub fn parse_file<P: AsRef<Path>>(path: P) -> Result<ParsedCapture, Box<dyn std::error::Error>> {
     let p = path.as_ref();
     let file = File::open(p)?;
@@ -75,9 +80,7 @@ struct CaptureRoot<'a> {
     commands: Vec<&'a RawValue>,
 }
 
-pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Error>> {
-    let root: CaptureRoot = serde_json::from_slice(slice)?;
-
+fn build_capture<'a>(mut root: CaptureRoot<'a>) -> Result<ParsedCapture, Box<dyn std::error::Error>> {
     // Canvas
     let mut canvas = CanvasInfo::default();
     if let Some(c) = root.canvas.as_ref() {
@@ -195,21 +198,9 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
         .and_then(|d| d.get("DEPTH_WRITEMASK"))
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
-    let mut current_depth_test = init_state
-        .and_then(|s| s.get("DepthState"))
-        .and_then(|d| d.get("DEPTH_TEST"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
-    let mut current_blend_enabled = init_state
-        .and_then(|s| s.get("BlendState"))
-        .and_then(|b| b.get("BLEND"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let mut current_cull_enabled = init_state
-        .and_then(|s| s.get("CullState"))
-        .and_then(|c| c.get("CULL_FACE"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let mut current_depth_test = init_state.and_then(|s| s.get("DepthState")).and_then(|d| d.get("DEPTH_TEST")).and_then(|v| v.as_bool()).unwrap_or(true);
+    let mut current_blend_enabled = init_state.and_then(|s| s.get("BlendState")).and_then(|b| b.get("BLEND")).and_then(|v| v.as_bool()).unwrap_or(false);
+    let mut current_cull_enabled = init_state.and_then(|s| s.get("CullState")).and_then(|c| c.get("CULL_FACE")).and_then(|v| v.as_bool()).unwrap_or(false);
     let mut current_color_mask: [bool; 4] = [true, true, true, true];
     let mut current_vao: Option<u64> = None;
 
@@ -244,9 +235,11 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
 
     summary.total_commands = root.commands.len();
 
+    let commands = std::mem::take(&mut root.commands);
+
     let mut particle_systems: Vec<ParticleSystemItem> = Vec::new();
 
-    for (cmd_idx, raw) in root.commands.iter().enumerate() {
+    for (cmd_idx, raw) in commands.into_iter().enumerate() {
         let cmd_owned: Value = serde_json::from_str(raw.get())?;
         collect_textures(&cmd_owned, &mut raw_textures);
         let cmd = &cmd_owned;
@@ -360,11 +353,9 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
             }
             "bindVertexArray" => {
                 state_changes.vao_bind_calls += 1;
-                let vao_id = args.and_then(|a| a.first()).and_then(|v| {
-                    v.get("__SPECTOR_Object_TAG")
-                        .and_then(|t| t.get("id"))
-                        .and_then(|id| id.as_u64())
-                });
+                let vao_id = args
+                    .and_then(|a| a.first())
+                    .and_then(|v| v.get("__SPECTOR_Object_TAG").and_then(|t| t.get("id")).and_then(|id| id.as_u64()));
                 if vao_id == current_vao && vao_id.is_some() {
                     state_changes.redundant_vao_binds += 1;
                 }
@@ -401,12 +392,7 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
                             tag.get("displayText")
                                 .and_then(|v| v.as_str())
                                 .map(|s| s.to_string())
-                                .unwrap_or_else(|| {
-                                    tag.get("id")
-                                        .and_then(|v| v.as_u64())
-                                        .map(|id| format!("FBO_{}", id))
-                                        .unwrap_or_else(|| "Unknown FBO".to_string())
-                                })
+                                .unwrap_or_else(|| tag.get("id").and_then(|v| v.as_u64()).map(|id| format!("FBO_{}", id)).unwrap_or_else(|| "Unknown FBO".to_string()))
                         } else {
                             "Default Backbuffer".to_string()
                         }
@@ -581,9 +567,7 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
                     bytes = 64;
                 } else if name.contains("Matrix3") {
                     bytes = 36;
-                } else if name.contains("Matrix2") {
-                    bytes = 16;
-                } else if name.ends_with("4f") || name.ends_with("4i") || name.ends_with("4ui") || name.ends_with("4fv") || name.ends_with("4iv") {
+                } else if name.contains("Matrix2") || name.ends_with("4f") || name.ends_with("4i") || name.ends_with("4ui") || name.ends_with("4fv") || name.ends_with("4iv") {
                     bytes = 16;
                 } else if name.ends_with("3f") || name.ends_with("3i") || name.ends_with("3ui") || name.ends_with("3fv") || name.ends_with("3iv") {
                     bytes = 12;
@@ -622,7 +606,8 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
                 }
                 summary.uniform_bytes += bytes;
 
-                let stack_caller = cmd.get("stackTrace")
+                let stack_caller = cmd
+                    .get("stackTrace")
                     .and_then(|st| st.as_array())
                     .and_then(|arr| arr.first())
                     .and_then(|s| s.as_str())
@@ -859,26 +844,24 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
                 }
             }
 
-            let stack_component = cmd.get("stackTrace")
-                .and_then(|st| st.as_array())
-                .and_then(|arr| {
-                    for frame in arr {
-                        if let Some(f) = frame.as_str() {
-                            if f.contains("ThinGlowLayer") {
-                                return Some("ThinGlowLayer".to_string());
-                            } else if f.contains("Mesh._") || f.contains("Mesh.") {
-                                return Some("Mesh".to_string());
-                            } else if f.contains("Particle") {
-                                return Some("ParticleSystem".to_string());
-                            } else if f.contains("Procedural") {
-                                return Some("ProceduralTexture".to_string());
-                            } else if f.contains("Scene.") {
-                                return Some("Scene".to_string());
-                            }
+            let stack_component = cmd.get("stackTrace").and_then(|st| st.as_array()).and_then(|arr| {
+                for frame in arr {
+                    if let Some(f) = frame.as_str() {
+                        if f.contains("ThinGlowLayer") {
+                            return Some("ThinGlowLayer".to_string());
+                        } else if f.contains("Mesh._") || f.contains("Mesh.") {
+                            return Some("Mesh".to_string());
+                        } else if f.contains("Particle") {
+                            return Some("ParticleSystem".to_string());
+                        } else if f.contains("Procedural") {
+                            return Some("ProceduralTexture".to_string());
+                        } else if f.contains("Scene.") {
+                            return Some("Scene".to_string());
                         }
                     }
-                    arr.first().and_then(|s| s.as_str()).map(|s| s.split('(').next().unwrap_or(s).trim().to_string())
-                });
+                }
+                arr.first().and_then(|s| s.as_str()).map(|s| s.split('(').next().unwrap_or(s).trim().to_string())
+            });
 
             let draw_item = DrawCallItem {
                 index: draw_item_idx,
@@ -948,39 +931,30 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
         let unames: Vec<String> = tex_uniform_names.get(&tid).map(|s| s.iter().cloned().collect()).unwrap_or_default();
         let is_pot = raw.width > 0 && raw.height > 0 && raw.width.is_power_of_two() && raw.height.is_power_of_two();
 
-        let (vram_bytes, base_bytes, mip_levels, comp_status, method) =
-            gl_enum::calculate_texture_memory(
-                raw.width,
-                raw.height,
-                raw.internal_format,
-                raw.format,
-                raw.r#type,
-                &raw.target,
-                raw.length,
-            );
+        let (vram_bytes, base_bytes, mip_levels, comp_status, method) = gl_enum::calculate_texture_memory(raw.width, raw.height, raw.internal_format, raw.format, raw.r#type, &raw.target, raw.length);
 
-        let category = classify_texture_category(
-            &unames,
-            raw.internal_format,
-            raw.format,
-            raw.r#type,
-            raw.width,
-            raw.height,
-            &raw.target,
-        );
+        let category = classify_texture_category(&unames, raw.internal_format, raw.format, raw.r#type, raw.width, raw.height, &raw.target);
 
         total_texture_bytes += vram_bytes;
 
         let is_compressed = comp_status == CompressionStatus::Compressed;
 
         let format_display = if raw.format == 0 {
-            if is_compressed { "—".to_string() } else { "UNKNOWN".to_string() }
+            if is_compressed {
+                "—".to_string()
+            } else {
+                "UNKNOWN".to_string()
+            }
         } else {
             gl_enum::format_name(raw.format).to_string()
         };
 
         let type_display = if raw.r#type == 0 {
-            if is_compressed { "—".to_string() } else { "UNKNOWN".to_string() }
+            if is_compressed {
+                "—".to_string()
+            } else {
+                "UNKNOWN".to_string()
+            }
         } else {
             gl_enum::type_name(raw.r#type).to_string()
         };
@@ -1010,7 +984,7 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
         });
     }
 
-    textures.sort_by(|a, b| b.length.cmp(&a.length));
+    textures.sort_by_key(|a| std::cmp::Reverse(a.length));
     summary.total_texture_bytes = total_texture_bytes;
     summary.total_textures_count = textures.len();
     summary.unique_programs = program_draw_counts.len();
@@ -1028,7 +1002,7 @@ pub fn parse_slice(slice: &[u8]) -> Result<ParsedCapture, Box<dyn std::error::Er
             is_pbr,
         });
     }
-    programs.sort_by(|a, b| b.draw_count.cmp(&a.draw_count));
+    programs.sort_by_key(|a| std::cmp::Reverse(a.draw_count));
 
     summary.particle_systems_count = particle_systems.len();
     summary.total_particles = particle_systems.iter().map(|p| p.particle_count).sum();
@@ -1113,15 +1087,7 @@ fn extract_spektor_id(v: &Value) -> Option<u32> {
     }
 }
 
-fn classify_texture_category(
-    uniform_names: &[String],
-    internal_format: u32,
-    format: u32,
-    type_val: u32,
-    width: u32,
-    height: u32,
-    target: &str,
-) -> TextureUsageCategory {
+fn classify_texture_category(uniform_names: &[String], internal_format: u32, format: u32, type_val: u32, width: u32, height: u32, target: &str) -> TextureUsageCategory {
     let unames_lower: Vec<String> = uniform_names.iter().map(|u| u.to_lowercase()).collect();
     let is_anim = unames_lower.iter().any(|u| {
         u.contains("vat")
@@ -1149,16 +1115,9 @@ fn classify_texture_category(
         return TextureUsageCategory::GpuAnimationData;
     }
 
-    let is_rt = unames_lower.iter().any(|u| {
-        u.contains("blur")
-            || u.contains("kernel")
-            || u.contains("merge")
-            || u.contains("depth")
-            || u.contains("shadow")
-            || u.contains("fbo")
-            || u.contains("pass")
-            || u.contains("rtt")
-    });
+    let is_rt = unames_lower
+        .iter()
+        .any(|u| u.contains("blur") || u.contains("kernel") || u.contains("merge") || u.contains("depth") || u.contains("shadow") || u.contains("fbo") || u.contains("pass") || u.contains("rtt"));
     if is_rt {
         return TextureUsageCategory::RenderTarget;
     }
@@ -1219,16 +1178,17 @@ fn collect_textures(v: &Value, map: &mut FxHashMap<u32, RawTexData>) {
                             item.internal_format = cd.get("internalFormat").and_then(|f| f.as_u64()).unwrap_or(0) as u32;
                             item.r#type = cd.get("type").and_then(|t| t.as_u64()).unwrap_or(0) as u32;
                             item.length = cd.get("length").and_then(|l| l.as_u64()).unwrap_or(0) as usize;
-                            item.is_compressed = cd.get("isCompressed").and_then(|c| c.as_bool()).unwrap_or(false)
-                                || gl_enum::is_compressed_format(item.internal_format)
-                                || gl_enum::is_compressed_format(item.format);
+                            item.is_compressed =
+                                cd.get("isCompressed").and_then(|c| c.as_bool()).unwrap_or(false) || gl_enum::is_compressed_format(item.internal_format) || gl_enum::is_compressed_format(item.format);
                             item.target = cd.get("target").and_then(|t| t.as_str()).unwrap_or("").to_string();
                         }
-                        map.entry(id).and_modify(|existing| {
-                            if item.length > existing.length || (existing.internal_format == 0 && item.internal_format != 0) {
-                                *existing = item.clone();
-                            }
-                        }).or_insert(item);
+                        map.entry(id)
+                            .and_modify(|existing| {
+                                if item.length > existing.length || (existing.internal_format == 0 && item.internal_format != 0) {
+                                    *existing = item.clone();
+                                }
+                            })
+                            .or_insert(item);
                     }
                 }
             }

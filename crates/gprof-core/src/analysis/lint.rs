@@ -41,7 +41,7 @@ pub struct LintRule {
     pub code_fix: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct LintReport {
     pub total_issues: usize,
     pub critical_count: usize,
@@ -117,7 +117,11 @@ BABYLON.KhronosTextureContainer2.URLConfig = {
     }
 
     // 4. Oversized 8K Color Textures (excluding VAT and 1D LUTs)
-    let color_8k = capture.textures.iter().filter(|t| t.category == TextureUsageCategory::ColorMaterial && (t.width >= 8192 || t.height >= 8192) && t.width.min(t.height) >= 512).count();
+    let color_8k = capture
+        .textures
+        .iter()
+        .filter(|t| t.category == TextureUsageCategory::ColorMaterial && (t.width >= 8192 || t.height >= 8192) && t.width.min(t.height) >= 512)
+        .count();
     if color_8k > 0 {
         rules.push(LintRule {
             id: "BABYLON-004".to_string(),
@@ -126,7 +130,8 @@ BABYLON.KhronosTextureContainer2.URLConfig = {
             impact: format!("[Calculated Estimate] {} color textures have dimensions >= 8192px.", color_8k),
             description: "High-resolution 8K color textures take substantial VRAM. Verifying whether 4K or 2K downscaling preserves sufficient visual fidelity can reduce memory pressure.".to_string(),
             code_fix: r#"// Downscale background skybox or environment textures to 2K/4K:
-const skyboxTexture = new BABYLON.CubeTexture("textures/skybox_2k", scene);"#.to_string(),
+const skyboxTexture = new BABYLON.CubeTexture("textures/skybox_2k", scene);"#
+                .to_string(),
         });
     }
 
@@ -136,13 +141,18 @@ const skyboxTexture = new BABYLON.CubeTexture("textures/skybox_2k", scene);"#.to
             id: "BABYLON-005".to_string(),
             severity: LintSeverity::Medium,
             title: "Duplicate Dynamic Buffer Uploads (bufferSubData)".to_string(),
-            impact: format!("[Observed Fact] {} bufferSubData calls uploaded identical data to the driver in the same frame.", analysis.buffers.duplicate_dynamic_uploads),
-            description: "Dynamic vertex or transform feedback buffers are repeatedly uploaded with identical data. Guard buffer updates with dirty flags to eliminate redundant CPU-to-driver copies.".to_string(),
+            impact: format!(
+                "[Observed Fact] {} bufferSubData calls uploaded identical data to the driver in the same frame.",
+                analysis.buffers.duplicate_dynamic_uploads
+            ),
+            description: "Dynamic vertex or transform feedback buffers are repeatedly uploaded with identical data. Guard buffer updates with dirty flags to eliminate redundant CPU-to-driver copies."
+                .to_string(),
             code_fix: r#"// Guard dynamic buffer updates with a dirty flag:
 if (this._isDirty) {
     this.flushDirty();
     this._isDirty = false;
-}"#.to_string(),
+}"#
+            .to_string(),
         });
     }
 
@@ -180,12 +190,18 @@ mesh.subdivide(Math.ceil(mesh.getTotalIndices() / 60000));"#.to_string(),
             id: "BABYLON-008".to_string(),
             severity: LintSeverity::Medium,
             title: "Material Sorting: Ping-Pong Shader Switching".to_string(),
-            impact: format!("[Calculated Estimate] {} ping-pong switches (A -> B -> A), causing up to {} reducible useProgram switches within phases.", analysis.sorting.ping_pong_switches, analysis.sorting.reducible_switches),
-            description: "Draw calls within render phases alternate between different shaders. Sorting opaque draw calls by material ID allows the driver to keep shader programs bound across multiple meshes.".to_string(),
+            impact: format!(
+                "[Calculated Estimate] {} ping-pong switches (A -> B -> A), causing up to {} reducible useProgram switches within phases.",
+                analysis.sorting.ping_pong_switches, analysis.sorting.reducible_switches
+            ),
+            description:
+                "Draw calls within render phases alternate between different shaders. Sorting opaque draw calls by material ID allows the driver to keep shader programs bound across multiple meshes."
+                    .to_string(),
             code_fix: r#"// Sort opaque meshes by material uniqueId to minimize shader switches:
 scene.setRenderingOrder(0, BABYLON.RenderingGroup.AUTOCLEAR, (a, b) => {
     return (a.material?.uniqueId || 0) - (b.material?.uniqueId || 0);
-});"#.to_string(),
+});"#
+                .to_string(),
         });
     }
 
@@ -251,27 +267,15 @@ pub fn format_lint_report(report: &LintReport) -> String {
 
     out.push_str(&format!(
         "Summary: **{}** patterns identified (🔴 {} Critical, 🟠 {} High, 🟡 {} Medium, ℹ️ {} Low)\n\n",
-        report.total_issues,
-        report.critical_count,
-        report.high_count,
-        report.medium_count,
-        report.low_count
+        report.total_issues, report.critical_count, report.high_count, report.medium_count, report.low_count
     ));
 
     out.push_str("| Rule ID | Severity | Title | Detected Telemetry / Metric | Description |\n");
     out.push_str("|---|---|---|---|---|\n");
     for r in &report.rules {
-        out.push_str(&format!(
-            "| `{}` | {} | {} | {} | {} |\n",
-            r.id,
-            r.severity.as_str(),
-            r.title,
-            r.impact,
-            r.description
-        ));
+        out.push_str(&format!("| `{}` | {} | {} | {} | {} |\n", r.id, r.severity.as_str(), r.title, r.impact, r.description));
     }
-    out.push_str("\n");
+    out.push('\n');
 
     out
 }
-

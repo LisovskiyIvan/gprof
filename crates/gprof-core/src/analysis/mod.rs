@@ -7,8 +7,8 @@ pub mod glow;
 pub mod instancing;
 pub mod lint;
 pub mod overdraw;
-pub mod passes;
 pub mod particles;
+pub mod passes;
 pub mod scene_tree;
 pub mod shaders;
 pub mod sorting;
@@ -26,8 +26,8 @@ pub use glow::*;
 pub use instancing::*;
 pub use lint::*;
 pub use overdraw::*;
-pub use passes::*;
 pub use particles::*;
+pub use passes::*;
 pub use scene_tree::*;
 pub use shaders::*;
 pub use sorting::*;
@@ -61,55 +61,26 @@ pub struct ComprehensiveAnalysis {
 }
 
 pub fn analyze(capture: &ParsedCapture, top_draws: usize) -> ComprehensiveAnalysis {
-    let textures = textures::analyze_textures(&capture.textures);
-    let glow = glow::audit_glow_layer(&capture.draws);
-    let draws = draws::analyze_draws(&capture.draws, top_draws);
-    let passes = passes::analyze_passes(&capture.passes);
-    let shaders = shaders::analyze_shaders(
-        &capture.programs,
-        capture.summary.use_program_calls,
-        capture.summary.redundant_use_program,
-    );
-    let particles = particles::analyze_particles(&capture.particles);
-    let uploads = uploads::analyze_uploads(&capture.uploads);
-    let instancing = instancing::analyze_instancing(&capture.draws);
-    let states = states::analyze(capture);
-    let buffers = buffers::analyze(capture);
-    let compression = compression::analyze_compression(&capture.textures);
-    let fbos = fbo::analyze_fbos(&capture.passes);
-    let sorting = sorting::analyze_sorting(capture);
-    let uniforms = uniforms::analyze_uniforms(capture);
-    let overdraw = overdraw::analyze_overdraw(capture);
-    let tree = scene_tree::analyze_scene_tree(capture);
-
     let mut partial = ComprehensiveAnalysis {
-        textures,
-        glow,
-        draws,
-        passes,
-        shaders,
-        particles,
-        uploads,
-        instancing,
-        states,
-        buffers,
-        compression,
-        fbos,
-        sorting,
-        uniforms,
-        overdraw,
-        tree,
-        lint: LintReport {
-            total_issues: 0,
-            critical_count: 0,
-            high_count: 0,
-            medium_count: 0,
-            low_count: 0,
-            rules: Vec::new(),
-        },
+        textures: textures::analyze_textures(&capture.textures),
+        glow: glow::audit_glow_layer(&capture.draws),
+        draws: draws::analyze_draws(&capture.draws, top_draws),
+        passes: passes::analyze_passes(&capture.passes),
+        shaders: shaders::analyze_shaders(&capture.programs, capture.summary.use_program_calls, capture.summary.redundant_use_program),
+        particles: particles::analyze_particles(&capture.particles),
+        uploads: uploads::analyze_uploads(&capture.uploads),
+        instancing: instancing::analyze_instancing(&capture.draws),
+        states: states::analyze(capture),
+        buffers: buffers::analyze(capture),
+        compression: compression::analyze_compression(&capture.textures),
+        fbos: fbo::analyze_fbos(&capture.passes),
+        sorting: sorting::analyze_sorting(capture),
+        uniforms: uniforms::analyze_uniforms(capture),
+        overdraw: overdraw::analyze_overdraw(capture),
+        tree: scene_tree::analyze_scene_tree(capture),
+        lint: LintReport::default(),
     };
 
     partial.lint = lint::run_linter(capture, &partial);
     partial
 }
-

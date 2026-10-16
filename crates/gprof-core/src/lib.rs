@@ -23,8 +23,7 @@ mod tests {
     #[test]
     fn test_texture_memory_calculation_formats() {
         // 1. Uncompressed RGBA8 (4096 x 4096, 6408 = RGBA, 5121 = UNSIGNED_BYTE, target = "TEXTURE_2D")
-        let (rgba8_total, rgba8_base, mips, comp, method) =
-            gl_enum::calculate_texture_memory(4096, 4096, 6408, 6408, 5121, "TEXTURE_2D", 0);
+        let (rgba8_total, rgba8_base, mips, comp, method) = gl_enum::calculate_texture_memory(4096, 4096, 6408, 6408, 5121, "TEXTURE_2D", 0);
         assert_eq!(comp, CompressionStatus::Uncompressed);
         assert_eq!(method, TextureEstimationMethod::FormatCalculation);
         assert_eq!(rgba8_base, 4096 * 4096 * 4); // 64 MB
@@ -32,8 +31,7 @@ mod tests {
         assert!(rgba8_total > rgba8_base); // includes mipmaps ~85.3 MB
 
         // 2. Uncompressed RGBA32F (1024 x 1024, internalFormat 34836 = RGBA32F, 6408 = RGBA, 5126 = FLOAT)
-        let (float_total, float_base, _, comp_f, method_f) =
-            gl_enum::calculate_texture_memory(1024, 1024, 34836, 6408, 5126, "TEXTURE_2D", 0);
+        let (float_total, float_base, _, comp_f, method_f) = gl_enum::calculate_texture_memory(1024, 1024, 34836, 6408, 5126, "TEXTURE_2D", 0);
         assert_eq!(comp_f, CompressionStatus::Uncompressed);
         assert_eq!(method_f, TextureEstimationMethod::FormatCalculation);
         assert_eq!(float_base, 1024 * 1024 * 16); // 16 MB
@@ -43,8 +41,7 @@ mod tests {
         // Block size: 4x4, 8 bytes per block
         // Blocks: (4096/4) * (4096/4) = 1024 * 1024 = 1,048,576 blocks
         // Base bytes: 1,048,576 * 8 = 8,388,608 bytes (8.0 MB)
-        let (etc2_total, etc2_base, mips_etc2, comp_etc2, method_etc2) =
-            gl_enum::calculate_texture_memory(4096, 4096, 0, 37492, 0, "TEXTURE_2D", 0);
+        let (etc2_total, etc2_base, mips_etc2, comp_etc2, method_etc2) = gl_enum::calculate_texture_memory(4096, 4096, 0, 37492, 0, "TEXTURE_2D", 0);
         assert_eq!(comp_etc2, CompressionStatus::Compressed);
         assert_eq!(method_etc2, TextureEstimationMethod::FormatCalculation);
         assert_eq!(etc2_base, 8 * 1024 * 1024); // 8 MB (NOT 64 MB!)
@@ -53,15 +50,13 @@ mod tests {
 
         // 4. Compressed ASTC 4x4 (internalFormat 37808 = COMPRESSED_RGBA_ASTC_4x4_KHR, 4096 x 4096)
         // Block size: 4x4, 16 bytes per block -> Base bytes: 16 MB
-        let (astc_total, astc_base, _, comp_astc, _) =
-            gl_enum::calculate_texture_memory(4096, 4096, 0, 37808, 0, "TEXTURE_2D", 0);
+        let (astc_total, astc_base, _, comp_astc, _) = gl_enum::calculate_texture_memory(4096, 4096, 0, 37808, 0, "TEXTURE_2D", 0);
         assert_eq!(comp_astc, CompressionStatus::Compressed);
         assert_eq!(astc_base, 16 * 1024 * 1024);
         assert!(astc_total > astc_base);
 
         // 5. Unknown format fallback
-        let (unk_total, unk_base, _, comp_unk, method_unk) =
-            gl_enum::calculate_texture_memory(512, 512, 0, 99999, 0, "TEXTURE_2D", 0);
+        let (unk_total, unk_base, _, comp_unk, method_unk) = gl_enum::calculate_texture_memory(512, 512, 0, 99999, 0, "TEXTURE_2D", 0);
         assert_eq!(comp_unk, CompressionStatus::Unknown);
         assert_eq!(method_unk, TextureEstimationMethod::EstimatedFallback);
         assert_eq!(unk_base, 512 * 512 * 4);
@@ -123,4 +118,3 @@ mod tests {
         println!("Report length: {} chars", report.len());
     }
 }
-

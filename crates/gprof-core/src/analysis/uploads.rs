@@ -16,8 +16,7 @@ pub fn analyze_uploads(uploads: &[DynamicUploadItem]) -> UploadsAnalysisResult {
         let first_st = uploads.iter().find(|u| !u.stack_trace.is_empty()).and_then(|u| u.stack_trace.first()).cloned().unwrap_or_default();
         Some(format!(
             "PER-FRAME TEXTURE ALLOCATION: {} `texImage2D` call(s) executed per frame. `texImage2D` reallocates texture storage on the GPU. Switch to `texSubImage2D` or uniform arrays. Top stack: {}",
-            tex_image_calls,
-            first_st
+            tex_image_calls, first_st
         ))
     } else {
         None

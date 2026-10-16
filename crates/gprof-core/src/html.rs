@@ -68,10 +68,22 @@ pub fn generate_html_report(capture: &ParsedCapture, analysis: &ComprehensiveAna
     let mut textures_rows = String::new();
     for t in capture.textures.iter().take(50) {
         let unames = if t.uniform_names.is_empty() { "—".to_string() } else { t.uniform_names.join(", ") };
-        let pot_badge = if t.is_pot { "<span style='color:#10b981;'>POT</span>" } else { "<span style='color:#f59e0b;'>NPOT</span>" };
+        let pot_badge = if t.is_pot {
+            "<span style='color:#10b981;'>POT</span>"
+        } else {
+            "<span style='color:#f59e0b;'>NPOT</span>"
+        };
         textures_rows.push_str(&format!(
             "<tr><td>#{}</td><td>{}x{}</td><td>{}</td><td><strong>{}</strong></td><td>{}</td><td>{}</td><td>{}</td><td><small>{}</small></td></tr>",
-            t.id, t.width, t.height, pot_badge, format_bytes(t.length), t.internal_format_name, t.type_name, t.draw_count, unames
+            t.id,
+            t.width,
+            t.height,
+            pot_badge,
+            format_bytes(t.length),
+            t.internal_format_name,
+            t.type_name,
+            t.draw_count,
+            unames
         ));
     }
 
@@ -80,7 +92,12 @@ pub fn generate_html_report(capture: &ParsedCapture, analysis: &ComprehensiveAna
         let pos = d.world_position.map(|p| format!("({:.1}, {:.1}, {:.1})", p[0], p[1], p[2])).unwrap_or_else(|| "—".to_string());
         draws_rows.push_str(&format!(
             "<tr><td>#{}</td><td><strong>{}</strong></td><td><code>{}</code></td><td>{}</td><td>{}</td><td>{}</td></tr>",
-            d.index, format_num(d.triangles), d.shader_name, d.fbo_name, format_bytes(d.vertex_buffer_bytes), pos
+            d.index,
+            format_num(d.triangles),
+            d.shader_name,
+            d.fbo_name,
+            format_bytes(d.vertex_buffer_bytes),
+            pos
         ));
     }
 
@@ -131,7 +148,8 @@ pub fn generate_html_report(capture: &ParsedCapture, analysis: &ComprehensiveAna
         ));
     }
 
-    format!(r#"<!DOCTYPE html>
+    format!(
+        r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -560,7 +578,13 @@ pub fn generate_html_report(capture: &ParsedCapture, analysis: &ComprehensiveAna
         triangles = format_num(capture.summary.triangles),
         points = format_num(capture.summary.points),
         overdraw_factor = analysis.overdraw.overdraw_factor,
-        overdraw_color = if analysis.overdraw.overdraw_factor >= 3.5 { "var(--danger)" } else if analysis.overdraw.overdraw_factor >= 2.0 { "var(--warning)" } else { "var(--success)" },
+        overdraw_color = if analysis.overdraw.overdraw_factor >= 3.5 {
+            "var(--danger)"
+        } else if analysis.overdraw.overdraw_factor >= 2.0 {
+            "var(--warning)"
+        } else {
+            "var(--success)"
+        },
         shaded_pixels = format_num(analysis.overdraw.total_shaded_pixels_estimate),
         bb_w = analysis.overdraw.backbuffer_resolution.0,
         bb_h = analysis.overdraw.backbuffer_resolution.1,

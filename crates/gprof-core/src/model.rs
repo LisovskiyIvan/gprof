@@ -309,4 +309,3 @@ pub struct ParsedCapture {
     pub buffer_uploads: Vec<DynamicBufferUploadItem>,
     pub uniform_commands: Vec<UniformCommandItem>,
 }
-

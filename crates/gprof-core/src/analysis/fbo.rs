@@ -93,7 +93,7 @@ pub fn analyze_fbos(passes: &[RenderPassItem]) -> FboAnalysis {
     }
 
     let mut fbos: Vec<FboSummaryItem> = map.into_values().collect();
-    fbos.sort_by(|a, b| b.vram_bytes.cmp(&a.vram_bytes));
+    fbos.sort_by_key(|a| std::cmp::Reverse(a.vram_bytes));
 
     let mut total_offscreen_vram = 0;
     let mut warnings = Vec::new();
@@ -124,5 +124,3 @@ pub fn analyze_fbos(passes: &[RenderPassItem]) -> FboAnalysis {
         warnings,
     }
 }
-
-

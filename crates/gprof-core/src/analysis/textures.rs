@@ -200,4 +200,3 @@ pub fn analyze_textures(textures: &[TextureItem]) -> TextureAnalysisResult {
         unknown_bytes,
     }
 }
-

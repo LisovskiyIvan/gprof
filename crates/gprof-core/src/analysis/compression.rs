@@ -40,10 +40,7 @@ pub fn analyze_compression(textures: &[TextureItem]) -> CompressionAnalysis {
     let mut npot_textures = Vec::new();
 
     for t in textures {
-        let is_float = t.format_name.contains("FLOAT")
-            || t.internal_format_name.contains("FLOAT")
-            || t.internal_format_name.contains("32F")
-            || t.type_name.contains("FLOAT");
+        let is_float = t.format_name.contains("FLOAT") || t.internal_format_name.contains("FLOAT") || t.internal_format_name.contains("32F") || t.type_name.contains("FLOAT");
 
         if !t.is_pot {
             npot_textures.push(NpotTextureItem {
@@ -128,4 +125,3 @@ pub fn analyze_compression(textures: &[TextureItem]) -> CompressionAnalysis {
         warnings,
     }
 }
-

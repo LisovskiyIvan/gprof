@@ -78,7 +78,7 @@ pub fn analyze_shaders(programs: &[ProgramItem], use_program_calls: usize, redun
         });
     }
 
-    variants.sort_by(|a, b| b.draw_count.cmp(&a.draw_count));
+    variants.sort_by_key(|a| std::cmp::Reverse(a.draw_count));
 
     let mut reasons = Vec::new();
     if has_index_32 {

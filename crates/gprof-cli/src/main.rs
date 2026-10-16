@@ -124,83 +124,44 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Full frame analysis (default)
-    Analyze {
-        capture: PathBuf,
-    },
+    Analyze { capture: PathBuf },
     /// Compare two captures (before vs after)
-    Compare {
-        before: PathBuf,
-        after: PathBuf,
-    },
+    Compare { before: PathBuf, after: PathBuf },
     /// Detailed texture breakdown & VRAM usage
-    Textures {
-        capture: PathBuf,
-    },
+    Textures { capture: PathBuf },
     /// GlowLayer & occluder waste audit
-    Glow {
-        capture: PathBuf,
-    },
+    Glow { capture: PathBuf },
     /// Heaviest draw calls by triangle count
-    Draws {
-        capture: PathBuf,
-    },
+    Draws { capture: PathBuf },
     /// Render passes sequence grouped by FBO
-    Passes {
-        capture: PathBuf,
-    },
+    Passes { capture: PathBuf },
     /// Shaders & PBR variant permutations
-    Shaders {
-        capture: PathBuf,
-    },
+    Shaders { capture: PathBuf },
     /// GPU particle systems & transform feedback
-    Particles {
-        capture: PathBuf,
-    },
+    Particles { capture: PathBuf },
     /// Dynamic per-frame texture uploads (texImage2D)
-    Uploads {
-        capture: PathBuf,
-    },
+    Uploads { capture: PathBuf },
     /// Detect duplicate geometry candidates for Thin/Hardware Instancing
-    Instancing {
-        capture: PathBuf,
-    },
+    Instancing { capture: PathBuf },
     /// WebGL state thrashing & redundant calls audit
-    States {
-        capture: PathBuf,
-    },
+    States { capture: PathBuf },
     /// Geometry buffers, dynamic uploads (bufferSubData), and 32-bit index buffers
-    Buffers {
-        capture: PathBuf,
-    },
+    Buffers { capture: PathBuf },
     /// Babylon.js performance linter rules & TypeScript code fixes
-    Lint {
-        capture: PathBuf,
-    },
+    Lint { capture: PathBuf },
     /// Material & shader sorting efficiency & ping-pong switches
-    Sorting {
-        capture: PathBuf,
-    },
+    Sorting { capture: PathBuf },
     /// Texture compression (KTX2/ASTC) and NPOT analysis
-    Compression {
-        capture: PathBuf,
-    },
+    Compression { capture: PathBuf },
     /// Render targets (FBO) VRAM footprint
-    Fbos {
-        capture: PathBuf,
-    },
+    Fbos { capture: PathBuf },
     /// Uniforms overhead & redundancy audit
-    Uniforms {
-        capture: PathBuf,
-    },
+    Uniforms { capture: PathBuf },
     /// Screen-space overdraw & fillrate pressure analysis
-    Overdraw {
-        capture: PathBuf,
-    },
+    Overdraw { capture: PathBuf },
     /// Reconstruct logical scene tree and mesh hierarchy
     #[command(alias = "scene")]
-    Tree {
-        capture: PathBuf,
-    },
+    Tree { capture: PathBuf },
     /// Generate standalone interactive HTML dashboard
     Html {
         capture: PathBuf,
@@ -217,6 +178,60 @@ enum Commands {
     },
 }
 
+impl Commands {
+    fn capture(&self) -> &PathBuf {
+        match self {
+            Commands::Analyze { capture }
+            | Commands::Textures { capture }
+            | Commands::Glow { capture }
+            | Commands::Draws { capture }
+            | Commands::Passes { capture }
+            | Commands::Shaders { capture }
+            | Commands::Particles { capture }
+            | Commands::Uploads { capture }
+            | Commands::Instancing { capture }
+            | Commands::States { capture }
+            | Commands::Buffers { capture }
+            | Commands::Lint { capture }
+            | Commands::Sorting { capture }
+            | Commands::Compression { capture }
+            | Commands::Fbos { capture }
+            | Commands::Uniforms { capture }
+            | Commands::Overdraw { capture }
+            | Commands::Tree { capture }
+            | Commands::Html { capture, .. }
+            | Commands::Export { capture, .. } => capture,
+            Commands::Compare { before, .. } => before,
+        }
+    }
+
+    fn subcommand(&self) -> Option<&'static str> {
+        match self {
+            Commands::Analyze { .. } => None,
+            Commands::Textures { .. } => Some("textures"),
+            Commands::Glow { .. } => Some("glow"),
+            Commands::Draws { .. } => Some("draws"),
+            Commands::Passes { .. } => Some("passes"),
+            Commands::Shaders { .. } => Some("shaders"),
+            Commands::Particles { .. } => Some("particles"),
+            Commands::Uploads { .. } => Some("uploads"),
+            Commands::Instancing { .. } => Some("instancing"),
+            Commands::States { .. } => Some("states"),
+            Commands::Buffers { .. } => Some("buffers"),
+            Commands::Lint { .. } => Some("lint"),
+            Commands::Sorting { .. } => Some("sorting"),
+            Commands::Compression { .. } => Some("compression"),
+            Commands::Fbos { .. } => Some("fbos"),
+            Commands::Uniforms { .. } => Some("uniforms"),
+            Commands::Overdraw { .. } => Some("overdraw"),
+            Commands::Tree { .. } => Some("tree"),
+            Commands::Html { .. } => Some("html"),
+            Commands::Export { .. } => Some("export"),
+            Commands::Compare { .. } => None,
+        }
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -230,58 +245,13 @@ fn main() {
         return;
     }
 
-    let (path, sub_cmd) = match (&cli.capture, &cli.command) {
-        (Some(p), None) => (p.clone(), None),
-        (None, Some(cmd)) => match cmd {
-            Commands::Analyze { capture } => (capture.clone(), None),
-            Commands::Textures { capture } => (capture.clone(), Some("textures")),
-            Commands::Glow { capture } => (capture.clone(), Some("glow")),
-            Commands::Draws { capture } => (capture.clone(), Some("draws")),
-            Commands::Passes { capture } => (capture.clone(), Some("passes")),
-            Commands::Shaders { capture } => (capture.clone(), Some("shaders")),
-            Commands::Particles { capture } => (capture.clone(), Some("particles")),
-            Commands::Uploads { capture } => (capture.clone(), Some("uploads")),
-            Commands::Instancing { capture } => (capture.clone(), Some("instancing")),
-            Commands::States { capture } => (capture.clone(), Some("states")),
-            Commands::Buffers { capture } => (capture.clone(), Some("buffers")),
-            Commands::Lint { capture } => (capture.clone(), Some("lint")),
-            Commands::Sorting { capture } => (capture.clone(), Some("sorting")),
-            Commands::Compression { capture } => (capture.clone(), Some("compression")),
-            Commands::Fbos { capture } => (capture.clone(), Some("fbos")),
-            Commands::Uniforms { capture } => (capture.clone(), Some("uniforms")),
-            Commands::Overdraw { capture } => (capture.clone(), Some("overdraw")),
-            Commands::Tree { capture } => (capture.clone(), Some("tree")),
-            Commands::Html { capture, .. } => (capture.clone(), Some("html")),
-            Commands::Export { capture, .. } => (capture.clone(), Some("export")),
-            Commands::Compare { .. } => unreachable!(),
-        },
-        (Some(p), Some(cmd)) => match cmd {
-            Commands::Analyze { .. } => (p.clone(), None),
-            Commands::Textures { .. } => (p.clone(), Some("textures")),
-            Commands::Glow { .. } => (p.clone(), Some("glow")),
-            Commands::Draws { .. } => (p.clone(), Some("draws")),
-            Commands::Passes { .. } => (p.clone(), Some("passes")),
-            Commands::Shaders { .. } => (p.clone(), Some("shaders")),
-            Commands::Particles { .. } => (p.clone(), Some("particles")),
-            Commands::Uploads { .. } => (p.clone(), Some("uploads")),
-            Commands::Instancing { .. } => (p.clone(), Some("instancing")),
-            Commands::States { .. } => (p.clone(), Some("states")),
-            Commands::Buffers { .. } => (p.clone(), Some("buffers")),
-            Commands::Lint { .. } => (p.clone(), Some("lint")),
-            Commands::Sorting { .. } => (p.clone(), Some("sorting")),
-            Commands::Compression { .. } => (p.clone(), Some("compression")),
-            Commands::Fbos { .. } => (p.clone(), Some("fbos")),
-            Commands::Uniforms { .. } => (p.clone(), Some("uniforms")),
-            Commands::Overdraw { .. } => (p.clone(), Some("overdraw")),
-            Commands::Tree { .. } => (p.clone(), Some("tree")),
-            Commands::Html { .. } => (p.clone(), Some("html")),
-            Commands::Export { .. } => (p.clone(), Some("export")),
-            Commands::Compare { .. } => unreachable!(),
-        },
-        (None, None) => {
-            eprintln!("Error: No capture file specified.\nUsage: gprof <CAPTURE_JSON> [OPTIONS]\nRun 'gprof --help' for details.");
-            process::exit(1);
-        }
+    let (path, sub_cmd) = if let Some(cmd) = &cli.command {
+        (cmd.capture().clone(), cmd.subcommand())
+    } else if let Some(capture) = &cli.capture {
+        (capture.clone(), None)
+    } else {
+        eprintln!("Error: No capture file specified.\nUsage: gprof <CAPTURE_JSON> [OPTIONS]\nRun 'gprof --help' for details.");
+        process::exit(1);
     };
 
     if !path.exists() {
@@ -302,14 +272,12 @@ fn main() {
     // Apply filters if requested
     if let Some(pat) = &cli.filter {
         let pat_lower = pat.to_lowercase();
-        capture.textures.retain(|t| {
-            t.format_name.to_lowercase().contains(&pat_lower)
-                || t.uniform_names.iter().any(|u| u.to_lowercase().contains(&pat_lower))
-        });
-        capture.draws.retain(|d| {
-            d.shader_name.to_lowercase().contains(&pat_lower)
-                || d.text.to_lowercase().contains(&pat_lower)
-        });
+        capture
+            .textures
+            .retain(|t| t.format_name.to_lowercase().contains(&pat_lower) || t.uniform_names.iter().any(|u| u.to_lowercase().contains(&pat_lower)));
+        capture
+            .draws
+            .retain(|d| d.shader_name.to_lowercase().contains(&pat_lower) || d.text.to_lowercase().contains(&pat_lower));
         capture.programs.retain(|p| p.shader_name.to_lowercase().contains(&pat_lower));
     }
 
@@ -466,7 +434,11 @@ fn write_export_file(path: &Path, content: &str) {
 }
 
 fn print_textures(capture: &ParsedCapture, analysis: &ComprehensiveAnalysis, top: usize) {
-    println!("# Textures Analysis (Total: {}, Memory: {})\n", capture.textures.len(), report::format_bytes(capture.summary.total_texture_bytes));
+    println!(
+        "# Textures Analysis (Total: {}, Memory: {})\n",
+        capture.textures.len(),
+        report::format_bytes(capture.summary.total_texture_bytes)
+    );
 
     println!("## Memory Categories\n");
     println!("| Category | Count | Total VRAM | Sample IDs |");
@@ -482,9 +454,22 @@ fn print_textures(capture: &ParsedCapture, analysis: &ComprehensiveAnalysis, top
 
 fn print_glow(analysis: &ComprehensiveAnalysis) {
     println!("# GlowLayer Non-Emissive Occluder Geometry Audit\n");
-    println!("- Total Glow Passes: **{}** draw calls, **{}** triangles", analysis.glow.total_draws, report::format_num(analysis.glow.total_triangles));
-    println!("- 🟡 **Non-Emissive Occluders:** **{}** draw calls, **{}** triangles (**{:.1}%** of glow geometry)", analysis.glow.black_occluder_draws, report::format_num(analysis.glow.black_occluder_triangles), analysis.glow.occluder_triangle_percentage);
-    println!("- 🟢 **Active Emissive Glowing:** **{}** draw calls, **{}** triangles\n", analysis.glow.active_glowing_draws, report::format_num(analysis.glow.active_glowing_triangles));
+    println!(
+        "- Total Glow Passes: **{}** draw calls, **{}** triangles",
+        analysis.glow.total_draws,
+        report::format_num(analysis.glow.total_triangles)
+    );
+    println!(
+        "- 🟡 **Non-Emissive Occluders:** **{}** draw calls, **{}** triangles (**{:.1}%** of glow geometry)",
+        analysis.glow.black_occluder_draws,
+        report::format_num(analysis.glow.black_occluder_triangles),
+        analysis.glow.occluder_triangle_percentage
+    );
+    println!(
+        "- 🟢 **Active Emissive Glowing:** **{}** draw calls, **{}** triangles\n",
+        analysis.glow.active_glowing_draws,
+        report::format_num(analysis.glow.active_glowing_triangles)
+    );
 
     if !analysis.glow.top_black_occluders.is_empty() {
         println!("## Heaviest Non-Emissive Occluder Meshes:\n");
@@ -492,7 +477,14 @@ fn print_glow(analysis: &ComprehensiveAnalysis) {
         println!("|---|---|---|---|---|");
         for m in &analysis.glow.top_black_occluders {
             let pos = m.world_position.map(|p| format!("({:.1}, {:.1}, {:.1})", p[0], p[1], p[2])).unwrap_or_else(|| "—".to_string());
-            println!("| #{} | #{} | **{}** | {:.1} KB | {} |", m.draw_index, m.command_id, report::format_num(m.triangles), m.vertex_buffer_bytes as f64 / 1024.0, pos);
+            println!(
+                "| #{} | #{} | **{}** | {:.1} KB | {} |",
+                m.draw_index,
+                m.command_id,
+                report::format_num(m.triangles),
+                m.vertex_buffer_bytes as f64 / 1024.0,
+                pos
+            );
         }
     }
 }
@@ -543,7 +535,10 @@ fn print_passes(analysis: &ComprehensiveAnalysis) {
 fn print_shaders(analysis: &ComprehensiveAnalysis) {
     println!("# Shaders & Program Permutations\n");
     println!("- Total WebGL Programs: **{}**", analysis.shaders.total_programs);
-    println!("- `useProgram` calls: **{}** (redundant: {})", analysis.shaders.use_program_calls, analysis.shaders.redundant_use_program_calls);
+    println!(
+        "- `useProgram` calls: **{}** (redundant: {})",
+        analysis.shaders.use_program_calls, analysis.shaders.redundant_use_program_calls
+    );
     println!("- PBR Shader Variants in single frame: **{}**", analysis.shaders.pbr_variants_count);
     println!("- Common PBR Defines count: **{}**\n", analysis.shaders.pbr_common_defines_count);
 
@@ -559,7 +554,11 @@ fn print_shaders(analysis: &ComprehensiveAnalysis) {
     println!("| Program ID | Draws | Unique Defines vs Common Baseline |");
     println!("|---|---|---|");
     for v in &analysis.shaders.pbr_variants {
-        let diff_str = if v.unique_defines.is_empty() { "None (Baseline)".to_string() } else { v.unique_defines.join(", ") };
+        let diff_str = if v.unique_defines.is_empty() {
+            "None (Baseline)".to_string()
+        } else {
+            v.unique_defines.join(", ")
+        };
         println!("| #{} | {} | `{}` |", v.program_id, v.draw_count, diff_str);
     }
 }

@@ -25,11 +25,7 @@ pub fn analyze(capture: &ParsedCapture) -> StateAnalysis {
     let mut items = Vec::new();
 
     let mut push_item = |name: &str, total: usize, redundant: usize| {
-        let pct = if total > 0 {
-            (redundant as f64 / total as f64) * 100.0
-        } else {
-            0.0
-        };
+        let pct = if total > 0 { (redundant as f64 / total as f64) * 100.0 } else { 0.0 };
         items.push(StateItem {
             name: name.to_string(),
             total_calls: total,
@@ -50,11 +46,7 @@ pub fn analyze(capture: &ParsedCapture) -> StateAnalysis {
 
     let total_calls: usize = items.iter().map(|i| i.total_calls).sum();
     let total_redundant: usize = items.iter().map(|i| i.redundant_calls).sum();
-    let overall_pct = if total_calls > 0 {
-        (total_redundant as f64 / total_calls as f64) * 100.0
-    } else {
-        0.0
-    };
+    let overall_pct = if total_calls > 0 { (total_redundant as f64 / total_calls as f64) * 100.0 } else { 0.0 };
 
     let mut warnings = Vec::new();
     if sc.redundant_depth_mask > 0 {
@@ -71,10 +63,7 @@ pub fn analyze(capture: &ParsedCapture) -> StateAnalysis {
         ));
     }
     if sc.redundant_depth_test > 0 {
-        warnings.push(format!(
-            "{} redundant DEPTH_TEST toggle calls.",
-            sc.redundant_depth_test
-        ));
+        warnings.push(format!("{} redundant DEPTH_TEST toggle calls.", sc.redundant_depth_test));
     }
     if sc.redundant_use_program > 0 {
         warnings.push(format!(

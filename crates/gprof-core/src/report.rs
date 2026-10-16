@@ -1,3 +1,11 @@
+use std::fmt::Write as _;
+
+macro_rules! w {
+    ($out:ident, $($arg:tt)*) => {
+        let _ = write!($out, $($arg)*);
+    };
+}
+
 use crate::analysis::ComprehensiveAnalysis;
 use crate::model::ParsedCapture;
 
@@ -20,7 +28,7 @@ pub fn format_num(n: usize) -> String {
     let chars: Vec<char> = s.chars().collect();
     let len = chars.len();
     for (i, c) in chars.into_iter().enumerate() {
-        if i > 0 && (len - i) % 3 == 0 {
+        if i > 0 && (len - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);
@@ -45,44 +53,44 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
     out.push_str("## 1. Executive Summary\n\n");
     out.push_str("| Metric | Value | Detail |\n");
     out.push_str("|---|---|---|\n");
-    out.push_str(&format!("| **Total WebGL Commands** | **{}** | In single captured frame |\n", format_num(capture.summary.total_commands)));
-    out.push_str(&format!(
+    w!(out, "| **Total WebGL Commands** | **{}** | In single captured frame |\n", format_num(capture.summary.total_commands));
+    w!(out, 
         "| **Draw Calls** | **{}** | {} elements, {} instanced elements, {} arrays, {} instanced arrays |\n",
         capture.summary.draw_calls,
         capture.summary.draw_elements,
         capture.summary.draw_elements_instanced,
         capture.summary.draw_arrays,
         capture.summary.draw_arrays_instanced
-    ));
-    out.push_str(&format!("| **Triangles** | **{}** | Geometry rendered across all passes |\n", format_num(capture.summary.triangles)));
-    out.push_str(&format!("| **Points / Particles** | **{}** | {} active GPUParticleSystems |\n", format_num(capture.summary.points), capture.summary.particle_systems_count));
-    out.push_str(&format!("| **Programs (Shaders)** | **{}** | {} useProgram switches ({} driver redundant) |\n", capture.summary.unique_programs, capture.summary.use_program_calls, capture.summary.redundant_use_program));
-    out.push_str(&format!("| **Texture Memory (VRAM)** | **{}** | {} textures in GPU memory |\n", format_bytes(capture.summary.total_texture_bytes), capture.summary.total_textures_count));
-    out.push_str(&format!("| **Texture Binds** | **{}** | activeTexture / bindTexture calls |\n", capture.summary.texture_bind_calls));
-    out.push_str(&format!("| **Framebuffers (FBOs)** | **{}** | {} bindFramebuffer calls |\n", capture.summary.active_fbo_count, capture.summary.fbo_bind_calls));
-    out.push_str(&format!(
+    );
+    w!(out, "| **Triangles** | **{}** | Geometry rendered across all passes |\n", format_num(capture.summary.triangles));
+    w!(out, "| **Points / Particles** | **{}** | {} active GPUParticleSystems |\n", format_num(capture.summary.points), capture.summary.particle_systems_count);
+    w!(out, "| **Programs (Shaders)** | **{}** | {} useProgram switches ({} driver redundant) |\n", capture.summary.unique_programs, capture.summary.use_program_calls, capture.summary.redundant_use_program);
+    w!(out, "| **Texture Memory (VRAM)** | **{}** | {} textures in GPU memory |\n", format_bytes(capture.summary.total_texture_bytes), capture.summary.total_textures_count);
+    w!(out, "| **Texture Binds** | **{}** | activeTexture / bindTexture calls |\n", capture.summary.texture_bind_calls);
+    w!(out, "| **Framebuffers (FBOs)** | **{}** | {} bindFramebuffer calls |\n", capture.summary.active_fbo_count, capture.summary.fbo_bind_calls);
+    w!(out, 
         "| **Dynamic Uploads** | **{}** | {} texImage2D, {} bufferSubData ({} duplicate) |\n",
         capture.summary.dynamic_uploads_count + capture.summary.buffer_subdata_calls,
         capture.summary.dynamic_uploads_count,
         capture.summary.buffer_subdata_calls,
         capture.summary.duplicate_buffer_uploads
-    ));
-    out.push_str(&format!(
+    );
+    w!(out, 
         "| **Redundant State Calls** | **{}** | Redundant depthMask, blend, depthTest, useProgram |\n",
         capture.state_changes.total_redundant_calls
-    ));
-    out.push_str(&format!(
+    );
+    w!(out, 
         "| **Index Buffer 32-bit** | **{}** | Draw calls using UNSIGNED_INT >65k verts (vs {} 16-bit) |\n",
         capture.summary.index_32bit_draws,
         capture.summary.index_16bit_draws
-    ));
-    out.push_str("\n");
+    );
+    out.push('\n');
 
     // Glow Layer Audit
     out.push_str("## 2. GlowLayer Occlusion & Emission Audit\n\n");
-    out.push_str(&format!("- Total Glow Passes: {} draw calls, {} triangles\n", analysis.glow.total_draws, format_num(analysis.glow.total_triangles)));
-    out.push_str(&format!("- **Non-Emissive Occluder Geometry:** {} draw calls, {} triangles (**{:.1}%** of glow geometry)\n", analysis.glow.black_occluder_draws, format_num(analysis.glow.black_occluder_triangles), analysis.glow.occluder_triangle_percentage));
-    out.push_str(&format!("- **Active Emissive Glowing Geometry:** {} draw calls, {} triangles\n\n", analysis.glow.active_glowing_draws, format_num(analysis.glow.active_glowing_triangles)));
+    w!(out, "- Total Glow Passes: {} draw calls, {} triangles\n", analysis.glow.total_draws, format_num(analysis.glow.total_triangles));
+    w!(out, "- **Non-Emissive Occluder Geometry:** {} draw calls, {} triangles (**{:.1}%** of glow geometry)\n", analysis.glow.black_occluder_draws, format_num(analysis.glow.black_occluder_triangles), analysis.glow.occluder_triangle_percentage);
+    w!(out, "- **Active Emissive Glowing Geometry:** {} draw calls, {} triangles\n\n", analysis.glow.active_glowing_draws, format_num(analysis.glow.active_glowing_triangles));
 
     if !analysis.glow.top_black_occluders.is_empty() {
         out.push_str("### Heaviest Non-Emissive Occluder Meshes in GlowLayer:\n\n");
@@ -90,16 +98,16 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
         out.push_str("|---|---|---|---|---|\n");
         for m in &analysis.glow.top_black_occluders {
             let pos_str = m.world_position.map(|p| format!("({:.1}, {:.1}, {:.1})", p[0], p[1], p[2])).unwrap_or_else(|| "—".to_string());
-            out.push_str(&format!(
+            w!(out, 
                 "| #{} | #{} | **{}** | {:.1} KB | {} |\n",
                 m.draw_index,
                 m.command_id,
                 format_num(m.triangles),
                 m.vertex_buffer_bytes as f64 / 1024.0,
                 pos_str
-            ));
+            );
         }
-        out.push_str("\n");
+        out.push('\n');
     }
 
     // Textures Memory
@@ -108,9 +116,9 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
     out.push_str("|---|---|---|---|\n");
     for b in &analysis.textures.buckets {
         let sample_str = b.sample_ids.iter().map(|id| format!("#{}", id)).collect::<Vec<_>>().join(", ");
-        out.push_str(&format!("| {} | {} | **{}** | {} |\n", b.name, b.count, format_bytes(b.total_bytes), sample_str));
+        w!(out, "| {} | {} | **{}** | {} |\n", b.name, b.count, format_bytes(b.total_bytes), sample_str);
     }
-    out.push_str("\n");
+    out.push('\n');
 
     // Render Passes
     out.push_str("## 4. Render Passes Sequence\n\n");
@@ -119,7 +127,7 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
     for p in &analysis.passes.passes {
         if p.draw_count > 0 {
             let shaders_summary = p.shaders.iter().map(|s| s.replace("vertex:", "")).collect::<Vec<_>>().join(", ");
-            out.push_str(&format!(
+            w!(out, 
                 "| {} | {} | {} | {} | {} | {} |\n",
                 p.pass_index,
                 p.fbo_name,
@@ -127,10 +135,10 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
                 p.draw_count,
                 format_num(p.triangles),
                 shaders_summary
-            ));
+            );
         }
     }
-    out.push_str("\n");
+    out.push('\n');
 
     // Heaviest Draw Calls
     out.push_str("## 5. Heaviest Draw Calls (Top Geometry)\n\n");
@@ -139,7 +147,7 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
     for d in analysis.draws.heaviest_draws.iter().take(15) {
         let pos_str = d.world_position.map(|p| format!("({:.1}, {:.1}, {:.1})", p[0], p[1], p[2])).unwrap_or_else(|| "—".to_string());
         let short_desc = if d.text.len() > 40 { format!("{}...", &d.text[..40]) } else { d.text.clone() };
-        out.push_str(&format!(
+        w!(out, 
             "| #{} | **{}** | {} | {} | {} | {} |\n",
             d.index,
             format_num(d.triangles),
@@ -147,46 +155,46 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
             d.shader_name.replace("vertex:", ""),
             pos_str,
             short_desc
-        ));
+        );
     }
-    out.push_str("\n");
+    out.push('\n');
 
     // Shaders & PBR Fragmentation
     out.push_str("## 6. Shaders & Programs\n\n");
-    out.push_str(&format!("- Total WebGL Programs: **{}**\n", analysis.shaders.total_programs));
-    out.push_str(&format!("- Total `useProgram` calls: **{}** (redundant: {})\n", analysis.shaders.use_program_calls, analysis.shaders.redundant_use_program_calls));
-    out.push_str(&format!("- PBR Shader Variants: **{}**\n", analysis.shaders.pbr_variants_count));
-    out.push_str(&format!("- Common PBR Defines: **{}**\n\n", analysis.shaders.pbr_common_defines_count));
+    w!(out, "- Total WebGL Programs: **{}**\n", analysis.shaders.total_programs);
+    w!(out, "- Total `useProgram` calls: **{}** (redundant: {})\n", analysis.shaders.use_program_calls, analysis.shaders.redundant_use_program_calls);
+    w!(out, "- PBR Shader Variants: **{}**\n", analysis.shaders.pbr_variants_count);
+    w!(out, "- Common PBR Defines: **{}**\n\n", analysis.shaders.pbr_common_defines_count);
 
     if !analysis.shaders.fragmentation_reasons.is_empty() {
         out.push_str("### Causes of PBR Shader Permutations:\n\n");
         for r in &analysis.shaders.fragmentation_reasons {
-            out.push_str(&format!("- {}\n", r));
+            w!(out, "- {}\n", r);
         }
-        out.push_str("\n");
+        out.push('\n');
     }
 
     // GPU Particles
     out.push_str("## 7. GPU Particles (Transform Feedback)\n\n");
-    out.push_str(&format!("- Active Systems: **{}**\n", analysis.particles.systems_count));
-    out.push_str(&format!("- Total Particles: **{}** points\n", format_num(analysis.particles.total_particles)));
-    out.push_str(&format!("- Total Quad Triangles Rendered: **{}**\n\n", format_num(analysis.particles.total_quad_triangles)));
+    w!(out, "- Active Systems: **{}**\n", analysis.particles.systems_count);
+    w!(out, "- Total Particles: **{}** points\n", format_num(analysis.particles.total_particles));
+    w!(out, "- Total Quad Triangles Rendered: **{}**\n\n", format_num(analysis.particles.total_quad_triangles));
 
     if !analysis.particles.systems.is_empty() {
         out.push_str("| System # | Update Draw # | Render Draw # | Particles | Quad Tris |\n");
         out.push_str("|---|---|---|---|---|\n");
         for (i, sys) in analysis.particles.systems.iter().enumerate() {
             let rend_str = sys.render_draw_index.map(|idx| format!("#{}", idx)).unwrap_or_else(|| "—".to_string());
-            out.push_str(&format!(
+            w!(out, 
                 "| {} | #{} | {} | **{}** | {} |\n",
                 i + 1,
                 sys.update_draw_index,
                 rend_str,
                 format_num(sys.particle_count),
                 format_num(sys.quads_rendered)
-            ));
+            );
         }
-        out.push_str("\n");
+        out.push('\n');
     }
 
     // Instancing Candidates
@@ -196,7 +204,7 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
         out.push_str("|---|---|---|---|---|---|\n");
         for c in analysis.instancing.candidates.iter().take(10) {
             let draws_sample = c.draw_indices.iter().take(4).map(|i| format!("#{}", i)).collect::<Vec<_>>().join(", ");
-            out.push_str(&format!(
+            w!(out, 
                 "| {:.1} KB | {} | **{}** | {} | **-{} calls** | {} |\n",
                 c.position_buffer_bytes as f64 / 1024.0,
                 format_num(c.triangles_per_instance),
@@ -204,35 +212,35 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
                 format_num(c.total_triangles),
                 c.potential_saved_draws,
                 draws_sample
-            ));
+            );
         }
-        out.push_str("\n");
+        out.push('\n');
     }
 
     // WebGL State Thrashing & Redundancy
     out.push_str("## 9. WebGL State Thrashing & Redundancy\n\n");
-    out.push_str(&format!("- Total WebGL State Calls: **{}**\n", format_num(analysis.states.total_state_calls)));
-    out.push_str(&format!("- Total Redundant Calls: **{}** (**{:.1}%** redundant)\n", format_num(analysis.states.total_redundant_calls), analysis.states.overall_redundancy_pct));
-    out.push_str(&format!("- Draw Call Modes: **{}** opaque, **{}** blended (alpha)\n\n", analysis.states.opaque_draws, analysis.states.blended_draws));
+    w!(out, "- Total WebGL State Calls: **{}**\n", format_num(analysis.states.total_state_calls));
+    w!(out, "- Total Redundant Calls: **{}** (**{:.1}%** redundant)\n", format_num(analysis.states.total_redundant_calls), analysis.states.overall_redundancy_pct);
+    w!(out, "- Draw Call Modes: **{}** opaque, **{}** blended (alpha)\n\n", analysis.states.opaque_draws, analysis.states.blended_draws);
 
     out.push_str("| WebGL State Call | Total Calls | Redundant Calls | Redundant % |\n");
     out.push_str("|---|---|---|---|\n");
     for s in &analysis.states.items {
         if s.total_calls > 0 {
-            out.push_str(&format!("| `{}` | {} | **{}** | **{:.1}%** |\n", s.name, s.total_calls, s.redundant_calls, s.redundant_pct));
+            w!(out, "| `{}` | {} | **{}** | **{:.1}%** |\n", s.name, s.total_calls, s.redundant_calls, s.redundant_pct);
         }
     }
-    out.push_str("\n");
+    out.push('\n');
 
     // Dynamic Buffers & Geometry
     out.push_str("## 10. Geometry Buffers & Dynamic Uploads\n\n");
-    out.push_str(&format!("- Geometry Buffer Memory (VRAM): **{}**\n", format_bytes(analysis.buffers.total_buffer_memory_bytes)));
-    out.push_str(&format!("- Index Buffer Bitness: **{}** 16-bit draws, **{}** 32-bit draws\n", analysis.buffers.index_16bit_draws, analysis.buffers.index_32bit_draws));
-    out.push_str(&format!("- Dynamic Buffer Uploads: **{}** calls ({} duplicate), **{}** uploaded/frame\n\n",
+    w!(out, "- Geometry Buffer Memory (VRAM): **{}**\n", format_bytes(analysis.buffers.total_buffer_memory_bytes));
+    w!(out, "- Index Buffer Bitness: **{}** 16-bit draws, **{}** 32-bit draws\n", analysis.buffers.index_16bit_draws, analysis.buffers.index_32bit_draws);
+    w!(out, "- Dynamic Buffer Uploads: **{}** calls ({} duplicate), **{}** uploaded/frame\n\n",
         analysis.buffers.total_dynamic_uploads,
         analysis.buffers.duplicate_dynamic_uploads,
         format_bytes(analysis.buffers.total_upload_bytes)
-    ));
+    );
 
     if !analysis.buffers.meshes_32bit.is_empty() {
         out.push_str("### Draw Calls Using 32-Bit Index Buffers (UNSIGNED_INT >65k vertices):\n\n");
@@ -240,7 +248,7 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
         out.push_str("|---|---|---|---|---|---|\n");
         for m in &analysis.buffers.meshes_32bit {
             let pos_str = m.world_position.map(|p| format!("({:.1}, {:.1}, {:.1})", p[0], p[1], p[2])).unwrap_or_else(|| "—".to_string());
-            out.push_str(&format!(
+            w!(out, 
                 "| #{} | #{} | **{}** | {} | {} | {} |\n",
                 m.draw_index,
                 m.command_id,
@@ -248,9 +256,9 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
                 m.fbo_name,
                 m.shader_name,
                 pos_str
-            ));
+            );
         }
-        out.push_str("\n");
+        out.push('\n');
     }
 
     if !analysis.buffers.uploads.is_empty() {
@@ -259,7 +267,7 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
         out.push_str("|---|---|---|---|---|---|\n");
         for u in &analysis.buffers.uploads {
             let trace = u.stack_trace.first().map(|s| s.as_str()).unwrap_or("—");
-            out.push_str(&format!(
+            w!(out, 
                 "| #{} | {} | {} | {} | {} | `{}` |\n",
                 u.command_index,
                 u.target_name,
@@ -267,32 +275,32 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
                 format_bytes(u.size_bytes),
                 if u.is_duplicate { "⚠️ Yes" } else { "No" },
                 trace
-            ));
+            );
         }
-        out.push_str("\n");
+        out.push('\n');
     }
 
     // Texture Compression & NPOT
     out.push_str("## 11. Texture Compression & NPOT Audit\n\n");
-    out.push_str(&format!("- Uncompressed Color Textures: **{}** ({})\n", analysis.compression.uncompressed_color_count, format_bytes(analysis.compression.uncompressed_color_bytes)));
-    out.push_str(&format!("- Theoretical KTX2 (ASTC / BC7) Upper Bound Savings: **{}** (~75% color VRAM)\n", format_bytes(analysis.compression.estimated_ktx2_savings_bytes)));
-    out.push_str(&format!("- GPU Animation / VAT Data Textures: **{}** (Experimental Half-Float savings: {})\n", format_bytes(analysis.compression.float_vat_bytes), format_bytes(analysis.compression.estimated_half_float_savings_bytes)));
-    out.push_str(&format!("- Non-Power-of-Two (NPOT) Textures: **{}** (Supported in WebGL 2; check CLAMP_TO_EDGE for WebGL 1 fallback)\n\n", analysis.compression.npot_count));
+    w!(out, "- Uncompressed Color Textures: **{}** ({})\n", analysis.compression.uncompressed_color_count, format_bytes(analysis.compression.uncompressed_color_bytes));
+    w!(out, "- Theoretical KTX2 (ASTC / BC7) Upper Bound Savings: **{}** (~75% color VRAM)\n", format_bytes(analysis.compression.estimated_ktx2_savings_bytes));
+    w!(out, "- GPU Animation / VAT Data Textures: **{}** (Experimental Half-Float savings: {})\n", format_bytes(analysis.compression.float_vat_bytes), format_bytes(analysis.compression.estimated_half_float_savings_bytes));
+    w!(out, "- Non-Power-of-Two (NPOT) Textures: **{}** (Supported in WebGL 2; check CLAMP_TO_EDGE for WebGL 1 fallback)\n\n", analysis.compression.npot_count);
 
     // Render Targets (FBO)
     out.push_str("## 12. Render Targets (FBO) VRAM Footprint\n\n");
-    out.push_str(&format!("- Total Active FBOs: **{}**\n", analysis.fbos.total_fbos_count));
-    out.push_str(&format!("- Total Offscreen FBO VRAM: **{}**\n", format_bytes(analysis.fbos.total_offscreen_vram_bytes)));
+    w!(out, "- Total Active FBOs: **{}**\n", analysis.fbos.total_fbos_count);
+    w!(out, "- Total Offscreen FBO VRAM: **{}**\n", format_bytes(analysis.fbos.total_offscreen_vram_bytes));
     if let Some((w, h)) = analysis.fbos.backbuffer_resolution {
-        out.push_str(&format!("- Canvas DrawingBuffer Resolution: **{}x{}**\n\n", w, h));
+        w!(out, "- Canvas DrawingBuffer Resolution: **{}x{}**\n\n", w, h);
     } else {
-        out.push_str("\n");
+        out.push('\n');
     }
     out.push_str("| FBO Name | Resolution | Dimension Source | Estimated VRAM | Passes | Draws | Tris | Oversized |\n");
     out.push_str("|---|---|---|---|---|---|---|---|\n");
     for f in &analysis.fbos.fbos {
         let res = if f.width > 0 && f.height > 0 { format!("{}x{}", f.width, f.height) } else { "—".to_string() };
-        out.push_str(&format!(
+        w!(out, 
             "| `{}` | {} | {} | **{}** | {} | {} | {} | {} |\n",
             f.fbo_name,
             res,
@@ -302,69 +310,69 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
             f.draw_count,
             format_num(f.triangles),
             if f.is_oversized { "⚠️ Candidate" } else { "No" }
-        ));
+        );
     }
-    out.push_str("\n");
+    out.push('\n');
 
     // Material & Shader Sorting
     out.push_str("## 13. Material & Shader Sorting Efficiency\n\n");
-    out.push_str(&format!("- Consecutive Shader Switches: **{}** (Phase-Constrained Min: **{}**)\n", analysis.sorting.total_switches, analysis.sorting.min_possible_switches));
-    out.push_str(&format!("- Reducible Shader Switches: **{}**\n", analysis.sorting.reducible_switches));
-    out.push_str(&format!("- Driver Redundant useProgram Calls: **{}**\n", analysis.sorting.api_redundant_use_program));
-    out.push_str(&format!("- Ping-Pong Switches (A -> B -> A): **{}**\n", analysis.sorting.ping_pong_switches));
-    out.push_str(&format!("- Overall Sorting Efficiency: **{:.1}%**\n", analysis.sorting.overall_efficiency_pct));
+    w!(out, "- Consecutive Shader Switches: **{}** (Phase-Constrained Min: **{}**)\n", analysis.sorting.total_switches, analysis.sorting.min_possible_switches);
+    w!(out, "- Reducible Shader Switches: **{}**\n", analysis.sorting.reducible_switches);
+    w!(out, "- Driver Redundant useProgram Calls: **{}**\n", analysis.sorting.api_redundant_use_program);
+    w!(out, "- Ping-Pong Switches (A -> B -> A): **{}**\n", analysis.sorting.ping_pong_switches);
+    w!(out, "- Overall Sorting Efficiency: **{:.1}%**\n", analysis.sorting.overall_efficiency_pct);
     if analysis.sorting.total_opaque_after_blended > 0 {
-        out.push_str(&format!("- ℹ️ **Opaque Draws After Blend:** **{}** (verify if UI/overlay or 3D geometry)\n", analysis.sorting.total_opaque_after_blended));
+        w!(out, "- ℹ️ **Opaque Draws After Blend:** **{}** (verify if UI/overlay or 3D geometry)\n", analysis.sorting.total_opaque_after_blended);
     }
-    out.push_str("\n");
+    out.push('\n');
 
     // Detected WebGL / Babylon Patterns Summary
     out.push_str("## 14. Detected WebGL & Engine Patterns Summary\n\n");
-    out.push_str(&format!(
+    w!(out, 
         "Identified **{}** patterns (🔴 {} Critical, 🟠 {} High, 🟡 {} Medium, ℹ️ {} Low).\n\n",
         analysis.lint.total_issues,
         analysis.lint.critical_count,
         analysis.lint.high_count,
         analysis.lint.medium_count,
         analysis.lint.low_count
-    ));
+    );
     out.push_str("| Rule ID | Severity | Pattern / Title | Detected Metric |\n");
     out.push_str("|---|---|---|---|\n");
     for r in &analysis.lint.rules {
-        out.push_str(&format!("| `{}` | {} | {} | {} |\n", r.id, r.severity.as_str(), r.title, r.impact));
+        w!(out, "| `{}` | {} | {} | {} |\n", r.id, r.severity.as_str(), r.title, r.impact);
     }
-    out.push_str("\n");
+    out.push('\n');
 
     // Uniforms Overhead
     out.push_str("## 15. Uniforms Overhead & Redundancy Audit\n\n");
-    out.push_str(&format!("- Total gl.uniform* API Calls: **{}** (Average per draw: **{:.2}**)\n", format_num(analysis.uniforms.total_calls), analysis.uniforms.avg_api_calls_per_draw));
-    out.push_str(&format!("- Active Uniform Declarations per Draw: **{:.1}** (Max: **{}**)\n", analysis.uniforms.avg_active_uniforms_per_draw, analysis.uniforms.max_uniforms_in_draw));
-    out.push_str(&format!("- Redundant API Calls: **{}** (**{:.1}%** redundant)\n", format_num(analysis.uniforms.redundant_calls), analysis.uniforms.redundancy_pct));
-    out.push_str(&format!("- CPU-to-Driver Payload: **{}** (Redundant: **{}**)\n", format_bytes(analysis.uniforms.total_bytes), format_bytes(analysis.uniforms.redundant_bytes)));
-    out.push_str(&format!("- Matrix Calls: **{}** (Redundant: **{}**)\n\n", analysis.uniforms.matrix_calls, analysis.uniforms.redundant_matrix_calls));
+    w!(out, "- Total gl.uniform* API Calls: **{}** (Average per draw: **{:.2}**)\n", format_num(analysis.uniforms.total_calls), analysis.uniforms.avg_api_calls_per_draw);
+    w!(out, "- Active Uniform Declarations per Draw: **{:.1}** (Max: **{}**)\n", analysis.uniforms.avg_active_uniforms_per_draw, analysis.uniforms.max_uniforms_in_draw);
+    w!(out, "- Redundant API Calls: **{}** (**{:.1}%** redundant)\n", format_num(analysis.uniforms.redundant_calls), analysis.uniforms.redundancy_pct);
+    w!(out, "- CPU-to-Driver Payload: **{}** (Redundant: **{}**)\n", format_bytes(analysis.uniforms.total_bytes), format_bytes(analysis.uniforms.redundant_bytes));
+    w!(out, "- Matrix Calls: **{}** (Redundant: **{}**)\n\n", analysis.uniforms.matrix_calls, analysis.uniforms.redundant_matrix_calls);
 
     // Screen-Space Coverage & Estimated Fillrate
     out.push_str("## 16. Estimated Screen-Space Coverage & Fillrate Pressure\n\n");
-    out.push_str(&format!("- Estimated Screen Coverage Multiplier: **{:.1}x** (Coverage Level: **{}**)\n", analysis.overdraw.estimated_screenspace_coverage, analysis.overdraw.risk_level));
-    out.push_str(&format!("- Coverage Breakdown: **{:.1}x** post-process quads, **{:.1}x** scene geometry & blending\n", analysis.overdraw.postprocess_quad_coverage, analysis.overdraw.geometry_coverage));
-    out.push_str(&format!("- Estimated Shaded Pixel Equivalents: **{}** (Target Canvas: {}x{})\n",
+    w!(out, "- Estimated Screen Coverage Multiplier: **{:.1}x** (Coverage Level: **{}**)\n", analysis.overdraw.estimated_screenspace_coverage, analysis.overdraw.risk_level);
+    w!(out, "- Coverage Breakdown: **{:.1}x** post-process quads, **{:.1}x** scene geometry & blending\n", analysis.overdraw.postprocess_quad_coverage, analysis.overdraw.geometry_coverage);
+    w!(out, "- Estimated Shaded Pixel Equivalents: **{}** (Target Canvas: {}x{})\n",
         format_num(analysis.overdraw.total_shaded_pixels_estimate),
         analysis.overdraw.backbuffer_resolution.0,
         analysis.overdraw.backbuffer_resolution.1
-    ));
-    out.push_str(&format!("- Full-Screen Post-Process Quads: **{}**\n", analysis.overdraw.fullscreen_quad_passes));
-    out.push_str(&format!("- Blended Transparent Draws: **{}** ({} triangles)\n", analysis.overdraw.blended_draw_calls, format_num(analysis.overdraw.blended_triangles)));
-    out.push_str(&format!("> [!NOTE]\n> {}\n\n", analysis.overdraw.methodology_disclaimer));
+    );
+    w!(out, "- Full-Screen Post-Process Quads: **{}**\n", analysis.overdraw.fullscreen_quad_passes);
+    w!(out, "- Blended Transparent Draws: **{}** ({} triangles)\n", analysis.overdraw.blended_draw_calls, format_num(analysis.overdraw.blended_triangles));
+    w!(out, "> [!NOTE]\n> {}\n\n", analysis.overdraw.methodology_disclaimer);
 
     // Scene Tree
     out.push_str("## 17. Scene Tree & Mesh Hierarchy Reconstruction\n\n");
-    out.push_str(&format!("- Reconstructed Logical Scene Nodes: **{}** (Source names unavailable in SpectorJS)\n", analysis.tree.total_nodes));
+    w!(out, "- Reconstructed Logical Scene Nodes: **{}** (Source names unavailable in SpectorJS)\n", analysis.tree.total_nodes);
     out.push_str("| Category | Node Count | Total Draws | Total Triangles |\n");
     out.push_str("|---|---|---|---|\n");
     for c in &analysis.tree.categories_summary {
-        out.push_str(&format!("| **{}** | {} | {} | **{}** |\n", c.category, c.node_count, c.draw_count, format_num(c.triangle_count)));
+        w!(out, "| **{}** | {} | {} | **{}** |\n", c.category, c.node_count, c.draw_count, format_num(c.triangle_count));
     }
-    out.push_str("\n");
+    out.push('\n');
 
     out
 }
@@ -372,16 +380,16 @@ pub fn format_full_report(capture: &ParsedCapture, analysis: &ComprehensiveAnaly
 pub fn format_states_table(analysis: &crate::analysis::StateAnalysis) -> String {
     let mut out = String::new();
     out.push_str("# WebGL State Thrashing & Redundancy Audit\n\n");
-    out.push_str(&format!("- Total WebGL State Calls: **{}**\n", format_num(analysis.total_state_calls)));
-    out.push_str(&format!("- Total Redundant Calls: **{}** (**{:.1}%** redundant)\n", format_num(analysis.total_redundant_calls), analysis.overall_redundancy_pct));
-    out.push_str(&format!("- Draw Call Modes: **{}** opaque, **{}** blended (alpha)\n\n", analysis.opaque_draws, analysis.blended_draws));
+    w!(out, "- Total WebGL State Calls: **{}**\n", format_num(analysis.total_state_calls));
+    w!(out, "- Total Redundant Calls: **{}** (**{:.1}%** redundant)\n", format_num(analysis.total_redundant_calls), analysis.overall_redundancy_pct);
+    w!(out, "- Draw Call Modes: **{}** opaque, **{}** blended (alpha)\n\n", analysis.opaque_draws, analysis.blended_draws);
 
     out.push_str("## State Changes Breakdown\n\n");
     out.push_str("| WebGL State Call | Total Calls | Redundant Calls | Redundant % |\n");
     out.push_str("|---|---|---|---|\n");
     for s in &analysis.items {
         if s.total_calls > 0 {
-            out.push_str(&format!("| `{}` | {} | **{}** | **{:.1}%** |\n", s.name, s.total_calls, s.redundant_calls, s.redundant_pct));
+            w!(out, "| `{}` | {} | **{}** | **{:.1}%** |\n", s.name, s.total_calls, s.redundant_calls, s.redundant_pct);
         }
     }
     out
@@ -390,13 +398,13 @@ pub fn format_states_table(analysis: &crate::analysis::StateAnalysis) -> String 
 pub fn format_buffers_table(analysis: &crate::analysis::BufferAnalysis) -> String {
     let mut out = String::new();
     out.push_str("# Geometry Buffers & Dynamic Uploads Audit\n\n");
-    out.push_str(&format!("- Geometry Buffer Memory (VRAM): **{}**\n", format_bytes(analysis.total_buffer_memory_bytes)));
-    out.push_str(&format!("- Index Buffer Bitness: **{}** 16-bit draws, **{}** 32-bit draws\n", analysis.index_16bit_draws, analysis.index_32bit_draws));
-    out.push_str(&format!("- Dynamic Buffer Uploads: **{}** calls ({} duplicate), **{}** uploaded/frame\n\n",
+    w!(out, "- Geometry Buffer Memory (VRAM): **{}**\n", format_bytes(analysis.total_buffer_memory_bytes));
+    w!(out, "- Index Buffer Bitness: **{}** 16-bit draws, **{}** 32-bit draws\n", analysis.index_16bit_draws, analysis.index_32bit_draws);
+    w!(out, "- Dynamic Buffer Uploads: **{}** calls ({} duplicate), **{}** uploaded/frame\n\n",
         analysis.total_dynamic_uploads,
         analysis.duplicate_dynamic_uploads,
         format_bytes(analysis.total_upload_bytes)
-    ));
+    );
 
     if !analysis.meshes_32bit.is_empty() {
         out.push_str("## Draw Calls Using 32-Bit Index Buffers (UNSIGNED_INT >65k vertices)\n\n");
@@ -404,7 +412,7 @@ pub fn format_buffers_table(analysis: &crate::analysis::BufferAnalysis) -> Strin
         out.push_str("|---|---|---|---|---|---|\n");
         for m in &analysis.meshes_32bit {
             let pos_str = m.world_position.map(|p| format!("({:.1}, {:.1}, {:.1})", p[0], p[1], p[2])).unwrap_or_else(|| "—".to_string());
-            out.push_str(&format!(
+            w!(out, 
                 "| #{} | #{} | **{}** | {} | {} | {} |\n",
                 m.draw_index,
                 m.command_id,
@@ -412,9 +420,9 @@ pub fn format_buffers_table(analysis: &crate::analysis::BufferAnalysis) -> Strin
                 m.fbo_name,
                 m.shader_name,
                 pos_str
-            ));
+            );
         }
-        out.push_str("\n");
+        out.push('\n');
     }
 
     if !analysis.uploads.is_empty() {
@@ -423,7 +431,7 @@ pub fn format_buffers_table(analysis: &crate::analysis::BufferAnalysis) -> Strin
         out.push_str("|---|---|---|---|---|---|\n");
         for u in &analysis.uploads {
             let trace = u.stack_trace.first().map(|s| s.as_str()).unwrap_or("—");
-            out.push_str(&format!(
+            w!(out, 
                 "| #{} | {} | {} | {} | {} | `{}` |\n",
                 u.command_index,
                 u.target_name,
@@ -431,9 +439,9 @@ pub fn format_buffers_table(analysis: &crate::analysis::BufferAnalysis) -> Strin
                 format_bytes(u.size_bytes),
                 if u.is_duplicate { "⚠️ Yes" } else { "No" },
                 trace
-            ));
+            );
         }
-        out.push_str("\n");
+        out.push('\n');
     }
 
     out
@@ -463,7 +471,7 @@ pub fn format_textures_table(textures: &[crate::model::TextureItem], top_n: usiz
             crate::model::TextureUsageCategory::RenderTarget => "Render Target",
             crate::model::TextureUsageCategory::Unknown => "Unknown",
         };
-        out.push_str(&format!(
+        w!(out, 
             "| #{} | {}x{} | {} | `{}` | {} | {} | **{}** | {} | {} |\n",
             t.id,
             t.width,
@@ -475,7 +483,7 @@ pub fn format_textures_table(textures: &[crate::model::TextureItem], top_n: usiz
             format_bytes(t.length),
             t.draw_count,
             unames
-        ));
+        );
     }
     out
 }
@@ -483,22 +491,22 @@ pub fn format_textures_table(textures: &[crate::model::TextureItem], top_n: usiz
 pub fn format_compression_table(analysis: &crate::analysis::CompressionAnalysis) -> String {
     let mut out = String::new();
     out.push_str("# Texture Compression & NPOT Audit\n\n");
-    out.push_str(&format!("- Total Textures in Frame: **{}**\n", analysis.total_textures));
-    out.push_str(&format!("- Uncompressed Color Textures: **{}** ({})\n", analysis.uncompressed_color_count, format_bytes(analysis.uncompressed_color_bytes)));
-    out.push_str(&format!("- Theoretical KTX2 (ASTC / BC7) Savings: **{}** (~75% color VRAM upper bound)\n", format_bytes(analysis.estimated_ktx2_savings_bytes)));
-    out.push_str(&format!("- GPU Animation / VAT Data Textures: **{}** (Half-Float experimental test savings: {})\n", format_bytes(analysis.float_vat_bytes), format_bytes(analysis.estimated_half_float_savings_bytes)));
-    out.push_str(&format!("- Block-Compressed Textures: **{}** ({})\n", analysis.compressed_count, format_bytes(analysis.compressed_bytes)));
+    w!(out, "- Total Textures in Frame: **{}**\n", analysis.total_textures);
+    w!(out, "- Uncompressed Color Textures: **{}** ({})\n", analysis.uncompressed_color_count, format_bytes(analysis.uncompressed_color_bytes));
+    w!(out, "- Theoretical KTX2 (ASTC / BC7) Savings: **{}** (~75% color VRAM upper bound)\n", format_bytes(analysis.estimated_ktx2_savings_bytes));
+    w!(out, "- GPU Animation / VAT Data Textures: **{}** (Half-Float experimental test savings: {})\n", format_bytes(analysis.float_vat_bytes), format_bytes(analysis.estimated_half_float_savings_bytes));
+    w!(out, "- Block-Compressed Textures: **{}** ({})\n", analysis.compressed_count, format_bytes(analysis.compressed_bytes));
     if analysis.unknown_count > 0 {
-        out.push_str(&format!("- Unknown / Fallback Format Textures: **{}** ({})\n", analysis.unknown_count, format_bytes(analysis.unknown_bytes)));
+        w!(out, "- Unknown / Fallback Format Textures: **{}** ({})\n", analysis.unknown_count, format_bytes(analysis.unknown_bytes));
     }
-    out.push_str(&format!("- Non-Power-of-Two (NPOT) Textures: **{}** (WebGL 2 compliant; check CLAMP_TO_EDGE for WebGL 1 fallback)\n\n", analysis.npot_count));
+    w!(out, "- Non-Power-of-Two (NPOT) Textures: **{}** (WebGL 2 compliant; check CLAMP_TO_EDGE for WebGL 1 fallback)\n\n", analysis.npot_count);
 
     if !analysis.npot_textures.is_empty() {
         out.push_str("## Non-Power-of-Two (NPOT) Textures List\n\n");
         out.push_str("| ID | Dimensions | Memory | Category | Draws |\n");
         out.push_str("|---|---|---|---|---|\n");
         for t in analysis.npot_textures.iter().take(25) {
-            out.push_str(&format!(
+            w!(out, 
                 "| #{} | {}x{} | **{}** | {} | {} |\n",
                 t.id,
                 t.width,
@@ -506,9 +514,9 @@ pub fn format_compression_table(analysis: &crate::analysis::CompressionAnalysis)
                 format_bytes(t.memory_bytes),
                 if t.is_float { "GPU Animation / VAT" } else { "Color / Material" },
                 t.draw_count
-            ));
+            );
         }
-        out.push_str("\n");
+        out.push('\n');
     }
 
     out
@@ -517,12 +525,12 @@ pub fn format_compression_table(analysis: &crate::analysis::CompressionAnalysis)
 pub fn format_fbo_table(analysis: &crate::analysis::FboAnalysis) -> String {
     let mut out = String::new();
     out.push_str("# Render Targets (FBO) VRAM Audit\n\n");
-    out.push_str(&format!("- Total Active FBOs: **{}**\n", analysis.total_fbos_count));
-    out.push_str(&format!("- Total Offscreen FBO VRAM: **{}**\n", format_bytes(analysis.total_offscreen_vram_bytes)));
+    w!(out, "- Total Active FBOs: **{}**\n", analysis.total_fbos_count);
+    w!(out, "- Total Offscreen FBO VRAM: **{}**\n", format_bytes(analysis.total_offscreen_vram_bytes));
     if let Some((w, h)) = analysis.backbuffer_resolution {
-        out.push_str(&format!("- Canvas DrawingBuffer Resolution: **{}x{}**\n\n", w, h));
+        w!(out, "- Canvas DrawingBuffer Resolution: **{}x{}**\n\n", w, h);
     } else {
-        out.push_str("\n");
+        out.push('\n');
     }
 
     out.push_str("## FBO Allocation Breakdown\n\n");
@@ -530,7 +538,7 @@ pub fn format_fbo_table(analysis: &crate::analysis::FboAnalysis) -> String {
     out.push_str("|---|---|---|---|---|---|---|---|\n");
     for f in &analysis.fbos {
         let res = if f.width > 0 && f.height > 0 { format!("{}x{}", f.width, f.height) } else { "—".to_string() };
-        out.push_str(&format!(
+        w!(out, 
             "| `{}` | {} | {} | **{}** | {} | {} | {} | {} |\n",
             f.fbo_name,
             res,
@@ -540,7 +548,7 @@ pub fn format_fbo_table(analysis: &crate::analysis::FboAnalysis) -> String {
             f.draw_count,
             format_num(f.triangles),
             if f.is_oversized { "⚠️ Candidate" } else { "No" }
-        ));
+        );
     }
 
     out
@@ -549,21 +557,21 @@ pub fn format_fbo_table(analysis: &crate::analysis::FboAnalysis) -> String {
 pub fn format_sorting_table(analysis: &crate::analysis::SortingAnalysis) -> String {
     let mut out = String::new();
     out.push_str("# Material & Shader Sorting Efficiency Audit\n\n");
-    out.push_str(&format!("- Consecutive Shader Switches: **{}** (Phase-Constrained Min: **{}**)\n", analysis.total_switches, analysis.min_possible_switches));
-    out.push_str(&format!("- Reducible Shader Switches: **{}**\n", analysis.reducible_switches));
-    out.push_str(&format!("- Driver Redundant useProgram Calls: **{}**\n", analysis.api_redundant_use_program));
-    out.push_str(&format!("- Ping-Pong Switches (A -> B -> A): **{}**\n", analysis.ping_pong_switches));
-    out.push_str(&format!("- Overall Sorting Efficiency: **{:.1}%**\n", analysis.overall_efficiency_pct));
+    w!(out, "- Consecutive Shader Switches: **{}** (Phase-Constrained Min: **{}**)\n", analysis.total_switches, analysis.min_possible_switches);
+    w!(out, "- Reducible Shader Switches: **{}**\n", analysis.reducible_switches);
+    w!(out, "- Driver Redundant useProgram Calls: **{}**\n", analysis.api_redundant_use_program);
+    w!(out, "- Ping-Pong Switches (A -> B -> A): **{}**\n", analysis.ping_pong_switches);
+    w!(out, "- Overall Sorting Efficiency: **{:.1}%**\n", analysis.overall_efficiency_pct);
     if analysis.total_opaque_after_blended > 0 {
-        out.push_str(&format!("- ℹ️ **Opaque Draws After Blend:** **{}** (verify if UI/overlay or 3D geometry)\n", analysis.total_opaque_after_blended));
+        w!(out, "- ℹ️ **Opaque Draws After Blend:** **{}** (verify if UI/overlay or 3D geometry)\n", analysis.total_opaque_after_blended);
     }
-    out.push_str("\n");
+    out.push('\n');
 
     out.push_str("## Pass-by-Pass Sorting Efficiency\n\n");
     out.push_str("| Pass # | FBO | Draws | Switches | Min (Constrained) | Reducible | Ping-Pong | Efficiency | Opaque After Blend |\n");
     out.push_str("|---|---|---|---|---|---|---|---|---|\n");
     for p in &analysis.passes {
-        out.push_str(&format!(
+        w!(out, 
             "| #{} | `{}` | {} | {} | {} | **{}** | **{}** | **{:.1}%** | {} |\n",
             p.pass_index,
             p.fbo_name,
@@ -574,7 +582,7 @@ pub fn format_sorting_table(analysis: &crate::analysis::SortingAnalysis) -> Stri
             p.ping_pong_switches,
             p.efficiency_pct,
             p.opaque_after_blended
-        ));
+        );
     }
 
     out
@@ -583,27 +591,27 @@ pub fn format_sorting_table(analysis: &crate::analysis::SortingAnalysis) -> Stri
 pub fn format_uniforms_table(analysis: &crate::analysis::UniformStats) -> String {
     let mut out = String::new();
     out.push_str("# Uniforms Overhead & Redundancy Audit\n\n");
-    out.push_str(&format!("- Total gl.uniform* API Calls: **{}** (Average per draw: **{:.2}**)\n", format_num(analysis.total_calls), analysis.avg_api_calls_per_draw));
-    out.push_str(&format!("- Active Uniform Declarations per Draw: **{:.1}** (Max: **{}**)\n", analysis.avg_active_uniforms_per_draw, analysis.max_uniforms_in_draw));
-    out.push_str(&format!("- Redundant API Calls: **{}** (**{:.1}%** redundant)\n", format_num(analysis.redundant_calls), analysis.redundancy_pct));
-    out.push_str(&format!("- CPU-to-Driver Payload: **{}** (Redundant: **{}**)\n", format_bytes(analysis.total_bytes), format_bytes(analysis.redundant_bytes)));
-    out.push_str(&format!("- Matrix Uniform Calls: **{}** (Redundant: **{}**)\n\n", analysis.matrix_calls, analysis.redundant_matrix_calls));
+    w!(out, "- Total gl.uniform* API Calls: **{}** (Average per draw: **{:.2}**)\n", format_num(analysis.total_calls), analysis.avg_api_calls_per_draw);
+    w!(out, "- Active Uniform Declarations per Draw: **{:.1}** (Max: **{}**)\n", analysis.avg_active_uniforms_per_draw, analysis.max_uniforms_in_draw);
+    w!(out, "- Redundant API Calls: **{}** (**{:.1}%** redundant)\n", format_num(analysis.redundant_calls), analysis.redundancy_pct);
+    w!(out, "- CPU-to-Driver Payload: **{}** (Redundant: **{}**)\n", format_bytes(analysis.total_bytes), format_bytes(analysis.redundant_bytes));
+    w!(out, "- Matrix Uniform Calls: **{}** (Redundant: **{}**)\n\n", analysis.matrix_calls, analysis.redundant_matrix_calls);
 
     if !analysis.redundant_by_type.is_empty() {
         out.push_str("## Uniform Commands Breakdown\n\n");
         out.push_str("| Uniform Command | Total Calls | Redundant Calls | Redundant % | Redundant Payload |\n");
         out.push_str("|---|---|---|---|---|\n");
         for t in &analysis.redundant_by_type {
-            out.push_str(&format!(
+            w!(out, 
                 "| `{}` | {} | **{}** | **{:.1}%** | {} |\n",
                 t.type_name,
                 format_num(t.total),
                 format_num(t.redundant),
                 t.redundant_pct,
                 format_bytes(t.redundant_bytes)
-            ));
+            );
         }
-        out.push_str("\n");
+        out.push('\n');
     }
 
     if !analysis.top_redundant_callers.is_empty() {
@@ -611,15 +619,15 @@ pub fn format_uniforms_table(analysis: &crate::analysis::UniformStats) -> String
         out.push_str("| Callsite / Function | Total Calls | Redundant Calls | Redundant % |\n");
         out.push_str("|---|---|---|---|\n");
         for c in &analysis.top_redundant_callers {
-            out.push_str(&format!(
+            w!(out, 
                 "| `{}` | {} | **{}** | **{:.1}%** |\n",
                 c.caller,
                 c.total_calls,
                 c.redundant_calls,
                 c.redundant_pct
-            ));
+            );
         }
-        out.push_str("\n");
+        out.push('\n');
     }
 
     out
@@ -628,26 +636,26 @@ pub fn format_uniforms_table(analysis: &crate::analysis::UniformStats) -> String
 pub fn format_overdraw_table(analysis: &crate::analysis::OverdrawAnalysisResult) -> String {
     let mut out = String::new();
     out.push_str("# Screen-Space Coverage & Estimated Fillrate Analysis\n\n");
-    out.push_str(&format!("- Target Canvas Resolution: **{}x{}** ({} pixels)\n",
+    w!(out, "- Target Canvas Resolution: **{}x{}** ({} pixels)\n",
         analysis.backbuffer_resolution.0,
         analysis.backbuffer_resolution.1,
         format_num(analysis.total_screen_pixels)
-    ));
-    out.push_str(&format!("- Estimated Screen Coverage Multiplier: **{:.1}x** (Coverage Level: **{}**)\n", analysis.estimated_screenspace_coverage, analysis.risk_level));
-    out.push_str(&format!("- Coverage Breakdown: **{:.1}x** post-process quads, **{:.1}x** scene geometry & blending\n", analysis.postprocess_quad_coverage, analysis.geometry_coverage));
-    out.push_str(&format!("- Estimated Shaded Pixel Equivalents: **{}** pixels/frame\n", format_num(analysis.total_shaded_pixels_estimate)));
-    out.push_str(&format!("- Full-Screen Post-Process Quads: **{}**\n", analysis.fullscreen_quad_passes));
-    out.push_str(&format!("- Blended Transparent Draws: **{}** ({} triangles)\n", analysis.blended_draw_calls, format_num(analysis.blended_triangles)));
+    );
+    w!(out, "- Estimated Screen Coverage Multiplier: **{:.1}x** (Coverage Level: **{}**)\n", analysis.estimated_screenspace_coverage, analysis.risk_level);
+    w!(out, "- Coverage Breakdown: **{:.1}x** post-process quads, **{:.1}x** scene geometry & blending\n", analysis.postprocess_quad_coverage, analysis.geometry_coverage);
+    w!(out, "- Estimated Shaded Pixel Equivalents: **{}** pixels/frame\n", format_num(analysis.total_shaded_pixels_estimate));
+    w!(out, "- Full-Screen Post-Process Quads: **{}**\n", analysis.fullscreen_quad_passes);
+    w!(out, "- Blended Transparent Draws: **{}** ({} triangles)\n", analysis.blended_draw_calls, format_num(analysis.blended_triangles));
     if analysis.early_z_broken_draws > 0 {
-        out.push_str(&format!("- ℹ️ Opaque Draws After Blend: **{}** (verify whether HUD/overlay or unorganized geometry)\n", analysis.early_z_broken_draws));
+        w!(out, "- ℹ️ Opaque Draws After Blend: **{}** (verify whether HUD/overlay or unorganized geometry)\n", analysis.early_z_broken_draws);
     }
-    out.push_str(&format!("> [!NOTE]\n> {}\n\n", analysis.methodology_disclaimer));
+    w!(out, "> [!NOTE]\n> {}\n\n", analysis.methodology_disclaimer);
 
     out.push_str("## Pass-by-Pass Fillrate & Coverage Pressure\n\n");
     out.push_str("| Pass # | FBO Name | Viewport | Draws | Quads | Blended Tris | Shaded Pixels Est. | Multiplier | Risk |\n");
     out.push_str("|---|---|---|---|---|---|---|---|---|\n");
     for p in &analysis.pass_overdraw {
-        out.push_str(&format!(
+        w!(out, 
             "| #{} | `{}` | {}x{} | {} | {} | {} | {} | **{:.1}x** | {} |\n",
             p.pass_index,
             p.fbo_name,
@@ -659,7 +667,7 @@ pub fn format_overdraw_table(analysis: &crate::analysis::OverdrawAnalysisResult)
             format_num(p.estimated_shaded_pixels),
             p.estimated_fillrate_multiplier,
             p.fillrate_pressure
-        ));
+        );
     }
 
     out
@@ -668,30 +676,30 @@ pub fn format_overdraw_table(analysis: &crate::analysis::OverdrawAnalysisResult)
 pub fn format_scene_tree_table(analysis: &crate::analysis::SceneTreeAnalysisResult, top: usize) -> String {
     let mut out = String::new();
     out.push_str("# Scene Tree & Mesh Hierarchy Reconstruction\n\n");
-    out.push_str(&format!("- Reconstructed Scene Nodes: **{}** (Note: SpectorJS capture does not retain scene mesh names; nodes are heuristically clustered by buffer size and position)\n\n", analysis.total_nodes));
+    w!(out, "- Reconstructed Scene Nodes: **{}** (Note: SpectorJS capture does not retain scene mesh names; nodes are heuristically clustered by buffer size and position)\n\n", analysis.total_nodes);
 
     out.push_str("## Scene Node Categories Breakdown\n\n");
     out.push_str("| Inferred Category | Node Count | Total Draws | Total Triangles |\n");
     out.push_str("|---|---|---|---|\n");
     for c in &analysis.categories_summary {
-        out.push_str(&format!(
+        w!(out, 
             "| **{}** | {} | {} | **{}** |\n",
             c.category,
             c.node_count,
             c.draw_count,
             format_num(c.triangle_count)
-        ));
+        );
     }
-    out.push_str("\n");
+    out.push('\n');
 
-    out.push_str(&format!("## Top Scene Nodes (Top {})\n\n", top));
+    w!(out, "## Top Scene Nodes (Top {})\n\n", top);
     out.push_str("| ID | Inferred Label | Inferred Category | Source Name | World Pos | Draws | Triangles | Passes | Shaders |\n");
     out.push_str("|---|---|---|---|---|---|---|---|---|\n");
     for node in analysis.nodes.iter().take(top) {
         let pos_str = node.world_position.map(|p| format!("({:.1}, {:.1}, {:.1})", p[0], p[1], p[2])).unwrap_or_else(|| "—".to_string());
         let passes_str = node.passes_used.iter().map(|p| format!("#{}", p)).collect::<Vec<_>>().join(", ");
         let shaders_str = node.shaders.iter().map(|s| s.replace("fragment:", "").replace("vertex:", "")).collect::<Vec<_>>().join(", ");
-        out.push_str(&format!(
+        w!(out, 
             "| #{} | **{}** | {} | *{}* | {} | {} | **{}** | {} | `{}` |\n",
             node.id,
             node.name,
@@ -702,7 +710,7 @@ pub fn format_scene_tree_table(analysis: &crate::analysis::SceneTreeAnalysisResu
             format_num(node.total_triangles),
             passes_str,
             shaders_str
-        ));
+        );
     }
 
     out

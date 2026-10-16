@@ -283,21 +283,21 @@ pub fn uncompressed_bytes_per_pixel(internal_format: u32, format: u32, type_val:
 
     // 2. Try base format + type combination
     let components = match format {
-        6408 | 36249 => 4, // RGBA, RGBA_INTEGER
-        6407 | 36248 => 3, // RGB, RGB_INTEGER
-        33319 | 33320 => 2, // RG, RG_INTEGER
+        6408 | 36249 => 4,                      // RGBA, RGBA_INTEGER
+        6407 | 36248 => 3,                      // RGB, RGB_INTEGER
+        33319 | 33320 => 2,                     // RG, RG_INTEGER
         6406 | 6409 | 6402 | 6403 | 36244 => 1, // ALPHA, LUMINANCE, DEPTH_COMPONENT, RED, RED_INTEGER
-        6410 | 34041 => 2, // LUMINANCE_ALPHA, DEPTH_STENCIL
+        6410 | 34041 => 2,                      // LUMINANCE_ALPHA, DEPTH_STENCIL
         _ => return None,
     };
 
     let bytes_per_component = match type_val {
-        5126 => 4, // FLOAT
-        5131 | 36193 => 2, // HALF_FLOAT, HALF_FLOAT_OES
-        5121 | 5120 => 1, // UNSIGNED_BYTE, BYTE
-        5123 | 5122 => 2, // UNSIGNED_SHORT, SHORT
-        5125 | 5124 => 4, // UNSIGNED_INT, INT
-        32819 | 32820 | 33635 => return Some(2), // Packed 16-bit
+        5126 => 4,                                               // FLOAT
+        5131 | 36193 => 2,                                       // HALF_FLOAT, HALF_FLOAT_OES
+        5121 | 5120 => 1,                                        // UNSIGNED_BYTE, BYTE
+        5123 | 5122 => 2,                                        // UNSIGNED_SHORT, SHORT
+        5125 | 5124 => 4,                                        // UNSIGNED_INT, INT
+        32819 | 32820 | 33635 => return Some(2),                 // Packed 16-bit
         33640 | 34042 | 35899 | 35902 | 36269 => return Some(4), // Packed 32-bit
         _ => return None,
     };
@@ -311,10 +311,7 @@ pub fn is_float_or_half_float(internal_format: u32, _format: u32, type_val: u32)
         return true;
     }
     // Internal formats
-    matches!(
-        internal_format,
-        34836 | 34837 | 34842 | 34843 | 33325 | 33326 | 33327 | 33328 | 35898 | 35901 | 36012 | 36013
-    )
+    matches!(internal_format, 34836 | 34837 | 34842 | 34843 | 33325 | 33326 | 33327 | 33328 | 35898 | 35901 | 36012 | 36013)
 }
 
 /// Calculate VRAM usage for a texture, handling block compression, mipmaps, faces, and estimation method.
@@ -349,8 +346,8 @@ pub fn calculate_texture_memory(
 
     if let Some(cfmt) = comp_fmt {
         if let Some((bw, bh, bpb)) = compressed_block_info(cfmt) {
-            let bx0 = (width + bw - 1) / bw;
-            let by0 = (height + bh - 1) / bh;
+            let bx0 = width.div_ceil(bw);
+            let by0 = height.div_ceil(bh);
             let base_bytes = (bx0 as usize) * (by0 as usize) * bpb * faces;
 
             // Calculate with full mip pyramid if POT or multiple levels
@@ -359,8 +356,8 @@ pub fn calculate_texture_memory(
             let mut h = height;
             let mut levels = 0;
             loop {
-                let bx = (w + bw - 1) / bw;
-                let by = (h + bh - 1) / bh;
+                let bx = w.div_ceil(bw);
+                let by = h.div_ceil(bh);
                 total_bytes += (bx as usize) * (by as usize) * bpb * faces;
                 levels += 1;
                 if w == 1 && h == 1 {
@@ -371,19 +368,9 @@ pub fn calculate_texture_memory(
             }
 
             // For POT compressed textures, full mipmaps are standard.
-            let chosen_bytes = if is_pot && (width > 4 || height > 4) {
-                total_bytes
-            } else {
-                base_bytes
-            };
+            let chosen_bytes = if is_pot && (width > 4 || height > 4) { total_bytes } else { base_bytes };
 
-            return (
-                chosen_bytes,
-                base_bytes,
-                levels,
-                CompressionStatus::Compressed,
-                TextureEstimationMethod::FormatCalculation,
-            );
+            return (chosen_bytes, base_bytes, levels, CompressionStatus::Compressed, TextureEstimationMethod::FormatCalculation);
         }
     }
 
@@ -419,11 +406,7 @@ pub fn calculate_texture_memory(
         }
 
         // If POT and not float animation data, assume standard mipmaps
-        let chosen_bytes = if is_pot && !is_float && (width > 1 || height > 1) {
-            total_bytes
-        } else {
-            base_bytes
-        };
+        let chosen_bytes = if is_pot && !is_float && (width > 1 || height > 1) { total_bytes } else { base_bytes };
 
         return (
             chosen_bytes,
@@ -436,23 +419,10 @@ pub fn calculate_texture_memory(
 
     // 3. Unknown format: if raw_length is present and non-zero
     if raw_length > 0 {
-        return (
-            raw_length,
-            raw_length,
-            1,
-            CompressionStatus::Unknown,
-            TextureEstimationMethod::EstimatedFallback,
-        );
+        return (raw_length, raw_length, 1, CompressionStatus::Unknown, TextureEstimationMethod::EstimatedFallback);
     }
 
     // 4. Fallback guess (4 B/px uncompressed assumption)
     let fallback_base = (width as usize) * (height as usize) * 4 * faces;
-    (
-        fallback_base,
-        fallback_base,
-        1,
-        CompressionStatus::Unknown,
-        TextureEstimationMethod::EstimatedFallback,
-    )
+    (fallback_base, fallback_base, 1, CompressionStatus::Unknown, TextureEstimationMethod::EstimatedFallback)
 }
-
